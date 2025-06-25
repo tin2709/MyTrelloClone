@@ -90,6 +90,11 @@ export default function LoginPage() {
                     </div>
 
                     <LoginButton />
+                    <div className="text-sm text-right">
+                        <Link href="/forgot-password" className="font-medium text-blue-600 hover:underline">
+                            Quên mật khẩu?
+                        </Link>
+                    </div>
                 </form>
 
                 <div className="text-center text-sm text-gray-500 my-6">

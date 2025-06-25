@@ -1,50 +1,75 @@
 // src/middleware.ts
 
-import { type NextRequest } from 'next/server';
-// SỬA Ở ĐÂY: Import từ file helper middleware mới
+import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/middleware';
 
 export async function middleware(request: NextRequest) {
-    // Hàm createClient này bây giờ là hàm ĐÚNG cho middleware
-    // Nó trả về một object đồng bộ, không cần 'await'
+    // Phần CSP không thay đổi
+    const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+    const cspHeader = `
+    default-src 'self';
+    script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https: http: 'unsafe-inline';
+    style-src 'self' 'nonce-${nonce}';
+    img-src 'self' blob: data:;
+    font-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+    frame-ancestors 'none';
+    upgrade-insecure-requests;
+  `;
+
+    // Bước 1: Lấy supabase client VÀ đối tượng response ban đầu
     const { supabase, response } = createClient(request);
 
-    // Lấy thông tin session
+    // Bước 2: Lấy session. Bước này rất quan trọng, nếu có `code` trong URL,
+    // Supabase sẽ trao đổi nó lấy session và đặt cookie vào đối tượng `response`.
     const {
         data: { session },
     } = await supabase.auth.getSession();
 
     const { pathname } = request.nextUrl;
 
-    // Nếu người dùng chưa đăng nhập và đang cố truy cập dashboard
+    // ----- SỬA LỖI Ở ĐÂY -----
+    // Logic chuyển hướng khi chưa/đã đăng nhập, nhưng BẢO TOÀN COOKIE
+
     if (!session && pathname.startsWith('/dashboard')) {
-        // Chuyển hướng họ về trang login
-        // LƯU Ý: Không dùng NextResponse.redirect nữa, vì response đã được quản lý
         const loginUrl = new URL('/login', request.url);
-        return Response.redirect(loginUrl);
+        // THAY ĐỔI: Sử dụng NextResponse.redirect nhưng truyền vào headers của response hiện có.
+        // Việc này tạo ra một redirect response nhưng vẫn giữ lại các header quan trọng
+        // như 'Set-Cookie' mà Supabase vừa tạo.
+        return NextResponse.redirect(loginUrl, {
+            headers: response.headers,
+        });
     }
 
-    // Nếu người dùng đã đăng nhập và đang cố truy cập trang login/signup
-    if (session && (pathname === '/login' || pathname === '/signup')) {
-        // Chuyển hướng họ về trang dashboard
+    if (session && (pathname === '/login' || pathname === '/signup' || pathname === '/forgot-password')) {
         const dashboardUrl = new URL('/dashboard', request.url);
-        return Response.redirect(dashboardUrl);
+        // THAY ĐỔI: Áp dụng logic tương tự ở đây.
+        return NextResponse.redirect(dashboardUrl, {
+            headers: response.headers,
+        });
     }
 
-    // Trả về response đã được cập nhật với các cookie (nếu có)
-    // Đây là bước quan trọng để giữ cho session được đồng bộ
-    return response;
+    // Phần CSP không thay đổi
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-nonce', nonce);
+
+    response.headers.set(
+        'Content-Security-Policy',
+        cspHeader.replace(/\s{2,}/g, ' ').trim()
+    );
+
+    return NextResponse.next({
+        request: {
+            headers: requestHeaders,
+        },
+        headers: response.headers,
+    });
 }
 
 export const config = {
     matcher: [
-        /*
-         * Match all request paths except for the ones starting with:
-         * - _next/static (static files)
-         * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
-         * Feel free to modify this pattern to include more paths.
-         */
         '/((?!_next/static|_next/image|favicon.ico).*)',
     ],
 };
