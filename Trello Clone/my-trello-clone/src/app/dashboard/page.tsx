@@ -238,9 +238,12 @@ const DefaultWorkspaceContent = ({ onCreateClick, onEditClick }: { onCreateClick
                 Các bảng của bạn
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                <Link href="/board/1">
                 <div className="aspect-video bg-fuchsia-700 rounded-md p-3 text-white font-bold flex flex-col justify-between cursor-pointer hover:opacity-90">
                     Bảng Trello của tôi
                 </div>
+                </Link>
+
                 <button onClick={onCreateClick} className="aspect-video bg-gray-100 hover:bg-gray-200 rounded-md text-sm text-gray-700 flex items-center justify-center">
                     Tạo bảng mới
                 </button>

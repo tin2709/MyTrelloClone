@@ -2,6 +2,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
+import type { Database } from '@/lib/type'; // <-- THÊM DÒNG NÀY
 
 export const createClient = (request: NextRequest) => {
     // Tạo một NextResponse ban đầu. Đây là cách để chúng ta có thể đọc và ghi cookie.
@@ -11,7 +12,7 @@ export const createClient = (request: NextRequest) => {
         },
     })
 
-    const supabase = createServerClient(
+    const supabase = createServerClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {

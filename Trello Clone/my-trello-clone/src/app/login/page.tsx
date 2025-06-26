@@ -9,9 +9,10 @@ import { FaMicrosoft, FaApple, FaSlack } from 'react-icons/fa';
 import { FiEye, FiEyeOff } from 'react-icons/fi';
 import Link from 'next/link';
 import clsx from 'clsx';
-import { login, type LoginState } from './actions';
+// Cập nhật import, thêm signInWithGoogle
+import { login, signInWithGoogle, type LoginState } from './actions';
 
-// Nút submit để hiển thị trạng thái loading
+// LoginButton không thay đổi
 function LoginButton() {
     const { pending } = useFormStatus();
     return (
@@ -30,10 +31,10 @@ function LoginButton() {
     );
 }
 
-// Component nút social tái sử dụng
-const SocialButton = ({ icon, text }: { icon: React.ReactNode; text: string }) => (
+// === SỬA ĐỔI SOCIALBUTTON ĐỂ CHẤP NHẬN TYPE ===
+const SocialButton = ({ icon, text, type = "button" }: { icon: React.ReactNode; text: string; type?: "button" | "submit" }) => (
     <button
-        type="button"
+        type={type} // Sử dụng prop type ở đây
         className="w-full flex items-center justify-center py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
     >
         <span className="mr-3">{icon}</span>
@@ -48,6 +49,7 @@ export default function LoginPage() {
 
     useEffect(() => {
         if (state?.error) {
+            // Có thể dùng một thư viện toast notification để hiển thị đẹp hơn
             alert(state.error);
         }
     }, [state]);
@@ -62,6 +64,7 @@ export default function LoginPage() {
                     </h1>
                 </div>
 
+                {/* Form đăng nhập bằng email/password không đổi */}
                 <form action={formAction} className="space-y-6">
                     <div>
                         <input
@@ -88,7 +91,6 @@ export default function LoginPage() {
                             {showPassword ? <FiEyeOff size={20} /> : <FiEye size={20} />}
                         </button>
                     </div>
-
                     <LoginButton />
                     <div className="text-sm text-right">
                         <Link href="/forgot-password" className="font-medium text-blue-600 hover:underline">
@@ -102,7 +104,15 @@ export default function LoginPage() {
                 </div>
 
                 <div className="space-y-3">
-                    <SocialButton icon={<FcGoogle size={22} />} text="Google" />
+                    {/* === SỬA ĐỔI Ở ĐÂY: BỌC NÚT GOOGLE TRONG FORM === */}
+                    <form action={signInWithGoogle}>
+                        <SocialButton
+                            icon={<FcGoogle size={22} />}
+                            text="Google"
+                            type="submit" // Đặt type là submit để kích hoạt form action
+                        />
+                    </form>
+                    {/* Các nút social khác giữ nguyên */}
                     <SocialButton icon={<FaMicrosoft size={20} color="#00A4EF" />} text="Microsoft" />
                     <SocialButton icon={<FaApple size={22} />} text="Apple" />
                     <SocialButton icon={<FaSlack size={20} />} text="Slack" />

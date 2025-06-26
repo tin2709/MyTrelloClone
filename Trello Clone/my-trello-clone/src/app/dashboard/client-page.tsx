@@ -3,24 +3,19 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import CreateBoardModal from '@/app/dashboard/CreateBoardModal'; // Import modal
+import CreateBoardModal from '@/app/dashboard/CreateBoardModal';
 
 // --- Icons ---
 import { BsTrello } from 'react-icons/bs';
 import { LuPlus } from 'react-icons/lu';
 import { FiChevronDown } from 'react-icons/fi';
 import LogoutButton from '@/components/LogoutButton';
+// THÊM MỚI: Import hook
+import useTailwindBreakpoint from '@/app/hooks/use-tailwind-breakpoint';
 
-// Copy các type và component phụ từ file page.tsx cũ
-interface Board {
-    id: string;
-    title: string;
-}
-interface Workspace {
-    id: string;
-    name: string;
-    boards: Board[];
-}
+// Các type và component phụ (không đổi)
+interface Board { id: string; title: string; }
+interface Workspace { id: string; name: string; boards: Board[]; }
 const BoardCard = ({ title, bgClass }: { title: string; bgClass: string }) => (
     <div className={`h-24 rounded-md p-3 text-white font-bold flex items-end ${bgClass}`}>{title}</div>
 );
@@ -47,8 +42,9 @@ interface DashboardClientProps {
 
 export default function DashboardClient({ userInitial, workspaces }: DashboardClientProps) {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    // THÊM MỚI: Gọi hook
+    const breakpoint = useTailwindBreakpoint();
 
-    // const allBoards = workspaces?.flatMap(ws => ws.boards) || [];
     const bgColors = ["bg-green-600", "bg-pink-600", "bg-blue-800", "bg-teal-600", "bg-purple-600", "bg-orange-500"];
 
     return (
@@ -58,12 +54,16 @@ export default function DashboardClient({ userInitial, workspaces }: DashboardCl
                 <header className="bg-white/80 backdrop-blur-sm shadow-sm p-3 flex justify-between items-center shrink-0 z-10">
                     <div className="flex items-center gap-4">
                         <Link href="/dashboard"><BsTrello className="text-2xl text-blue-600" /></Link>
-                        {/* Nút Tạo mới ở Header */}
+                        {/* SỬA ĐỔI: Nút Tạo mới ở Header */}
                         <button
                             onClick={() => setIsModalOpen(true)}
-                            className="bg-blue-600 text-white px-4 py-1.5 rounded-md text-sm font-semibold hover:bg-blue-700"
+                            className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-semibold hover:bg-blue-700 flex items-center justify-center"
                         >
-                            Tạo mới
+                            {breakpoint === 'xs' ? (
+                                <LuPlus size={18} /> // Chỉ icon trên mobile
+                            ) : (
+                                'Tạo mới' // Text đầy đủ trên desktop
+                            )}
                         </button>
                     </div>
                     <div className="flex items-center gap-4">
@@ -73,8 +73,8 @@ export default function DashboardClient({ userInitial, workspaces }: DashboardCl
                     </div>
                 </header>
 
+                {/* Phần còn lại không đổi */}
                 <div className="flex flex-1 overflow-y-auto">
-                    {/* Sidebar */}
                     <aside className="w-64 bg-gray-50 p-4 border-r border-gray-200 shrink-0">
                         <nav className="flex flex-col gap-1 text-sm">{/* ... Giữ nguyên ... */}</nav>
                         <hr className="my-4" />
@@ -84,9 +84,7 @@ export default function DashboardClient({ userInitial, workspaces }: DashboardCl
                         </div>
                     </aside>
 
-                    {/* Main Content */}
                     <main className="flex-1 p-4 md:p-8 overflow-y-auto bg-white">
-                        {/* ... Các section giữ nguyên ... */}
                         {workspaces?.map(ws => (
                             <section key={ws.id} className="mt-12">
                                 <h2 className="text-lg font-bold text-gray-700 mb-4">{ws.name}</h2>
@@ -94,7 +92,6 @@ export default function DashboardClient({ userInitial, workspaces }: DashboardCl
                                     {ws.boards.map((board, index) => (
                                         <BoardCard key={board.id} title={board.title} bgClass={bgColors[(index + 1) % bgColors.length]} />
                                     ))}
-                                    {/* Nút Tạo bảng mới trong từng workspace */}
                                     <div
                                         onClick={() => setIsModalOpen(true)}
                                         className="h-24 rounded-md bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-sm text-gray-700 cursor-pointer"
@@ -108,7 +105,7 @@ export default function DashboardClient({ userInitial, workspaces }: DashboardCl
                 </div>
             </div>
 
-            {/* Render Modal */}
+            {/* Render Modal không đổi */}
             <CreateBoardModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
