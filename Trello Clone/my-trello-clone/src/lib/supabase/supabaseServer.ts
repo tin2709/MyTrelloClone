@@ -1,15 +1,14 @@
 // lib/supabase/server.ts
 
-// 1. Import các thành phần cần thiết
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import type { Database } from '@/lib/type';
 
-// 2. Tạo hàm createClient
-// Hàm này không cần nhận tham số nữa, nó tự xử lý mọi thứ bên trong.
+// Hàm tạo Supabase client trên server
 export const createClient = async () => {
-    const cookieStore = await cookies(); // <- dùng await
+    const cookieStore = await cookies(); // <- dùng await vì trong Route Handlers cookies() là async
 
-    return createServerClient(
+    return createServerClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
@@ -21,14 +20,14 @@ export const createClient = async () => {
                     try {
                         cookieStore.set({ name, value, ...options });
                     } catch {
-                        // ignore error
+                        // Bỏ qua lỗi
                     }
                 },
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options });
                     } catch {
-                        // ignore error
+                        // Bỏ qua lỗi
                     }
                 },
             },

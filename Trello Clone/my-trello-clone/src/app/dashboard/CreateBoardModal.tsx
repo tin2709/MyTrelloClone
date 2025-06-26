@@ -6,6 +6,8 @@ import { useFormState, useFormStatus } from 'react-dom';
 import { createBoard, type CreateBoardState } from '@/app/dashboard/board-actions';
 import { FiX } from 'react-icons/fi';
 import clsx from 'clsx';
+// THÊM MỚI: Import hook
+import useTailwindBreakpoint from '@/app/hooks/use-tailwind-breakpoint';
 
 // Định nghĩa kiểu dữ liệu cho workspace để truyền vào từ trang cha
 interface Workspace {
@@ -19,7 +21,7 @@ interface CreateBoardModalProps {
     onClose: () => void;
 }
 
-// Nút submit để quản lý trạng thái loading
+// Nút submit để quản lý trạng thái loading (không đổi)
 function SubmitButton() {
     const { pending } = useFormStatus();
     return (
@@ -42,7 +44,10 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
     const [state, formAction] = useFormState(createBoard, initialState);
     const modalRef = useRef<HTMLDivElement>(null);
 
-    // Xử lý khi tạo bảng thành công -> đóng modal
+    // THÊM MỚI: Gọi hook để lấy breakpoint
+    const breakpoint = useTailwindBreakpoint();
+
+    // Xử lý khi tạo bảng thành công -> đóng modal (không đổi)
     useEffect(() => {
         if (state?.success) {
             onClose();
@@ -52,7 +57,7 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
         }
     }, [state, onClose]);
 
-    // Đóng modal khi click ra ngoài
+    // Đóng modal khi click ra ngoài (không đổi)
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -71,8 +76,19 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50">
-            <div ref={modalRef} className="bg-white rounded-lg shadow-xl p-4 w-full max-w-sm mt-16 relative">
+        // Chuyển p-4 xuống div con
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50">
+            {/* SỬA ĐỔI: Thêm class động cho modal */}
+            <div
+                ref={modalRef}
+                className={clsx(
+                    "bg-white shadow-xl p-4 relative",
+                    // Logic responsive:
+                    breakpoint === 'xs'
+                        ? 'w-full h-full rounded-none mt-0' // Giao diện mobile
+                        : 'rounded-lg w-full max-w-sm mt-16' // Giao diện desktop
+                )}
+            >
                 <div className="flex justify-between items-center border-b pb-2 mb-4">
                     <h2 className="text-lg font-semibold text-gray-700">Tạo bảng</h2>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200">
@@ -80,8 +96,8 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
                     </button>
                 </div>
 
+                {/* Form không đổi */}
                 <form action={formAction} className="space-y-4">
-                    {/* Phần phông nền (giả lập) */}
                     <div className="h-24 bg-gray-200 rounded-md mb-4"></div>
 
                     <div>
