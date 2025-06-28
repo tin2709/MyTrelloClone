@@ -6,7 +6,6 @@ import { useFormState, useFormStatus } from 'react-dom';
 import { createBoard, type CreateBoardState } from '@/app/dashboard/board-actions';
 import { FiX } from 'react-icons/fi';
 import clsx from 'clsx';
-// THÊM MỚI: Import hook
 import useTailwindBreakpoint from '@/app/hooks/use-tailwind-breakpoint';
 
 // Định nghĩa kiểu dữ liệu cho workspace để truyền vào từ trang cha
@@ -21,7 +20,7 @@ interface CreateBoardModalProps {
     onClose: () => void;
 }
 
-// Nút submit để quản lý trạng thái loading (không đổi)
+// Nút submit để quản lý trạng thái loading (giữ nguyên)
 function SubmitButton() {
     const { pending } = useFormStatus();
     return (
@@ -43,21 +42,16 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
     const initialState: CreateBoardState = {};
     const [state, formAction] = useFormState(createBoard, initialState);
     const modalRef = useRef<HTMLDivElement>(null);
-
-    // THÊM MỚI: Gọi hook để lấy breakpoint
     const breakpoint = useTailwindBreakpoint();
 
-    // Xử lý khi tạo bảng thành công -> đóng modal (không đổi)
+    // SỬA ĐỔI: Chỉ xử lý đóng modal khi thành công. Lỗi sẽ được hiển thị trên UI.
     useEffect(() => {
         if (state?.success) {
             onClose();
         }
-        if (state?.error) {
-            alert(state.error);
-        }
-    }, [state, onClose]);
+    }, [state?.success, onClose]);
 
-    // Đóng modal khi click ra ngoài (không đổi)
+    // Đóng modal khi click ra ngoài (giữ nguyên)
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
@@ -76,14 +70,11 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
     if (!isOpen) return null;
 
     return (
-        // Chuyển p-4 xuống div con
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50">
-            {/* SỬA ĐỔI: Thêm class động cho modal */}
             <div
                 ref={modalRef}
                 className={clsx(
                     "bg-white shadow-xl p-4 relative",
-                    // Logic responsive:
                     breakpoint === 'xs'
                         ? 'w-full h-full rounded-none mt-0' // Giao diện mobile
                         : 'rounded-lg w-full max-w-sm mt-16' // Giao diện desktop
@@ -96,16 +87,17 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
                     </button>
                 </div>
 
-                {/* Form không đổi */}
                 <form action={formAction} className="space-y-4">
-                    <div className="h-24 bg-gray-200 rounded-md mb-4"></div>
+                    {/* Phần preview ảnh nền (giữ nguyên) */}
+                    <div className="h-24 bg-gray-200 rounded-md mb-4 flex items-center justify-center text-gray-500">
+                        Preview Nền
+                    </div>
 
                     <div>
                         <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
                             Tiêu đề bảng <span className="text-red-500">*</span>
                         </label>
                         <input
-                            type="text"
                             id="title"
                             name="title"
                             required
@@ -131,6 +123,13 @@ export default function CreateBoardModal({ workspaces, isOpen, onClose }: Create
                     </div>
 
                     <SubmitButton />
+
+                    {/* THÊM MỚI: Hiển thị thông báo lỗi ngay trong form */}
+                    {state?.error && (
+                        <p className="text-sm text-red-600 text-center">
+                            {state.error}
+                        </p>
+                    )}
                 </form>
             </div>
         </div>
