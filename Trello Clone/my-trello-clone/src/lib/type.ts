@@ -61,6 +61,7 @@ export type Database = {
                     description: string | null; // text
                     position: number; // int4
                     list_id: string; // uuid
+                    board_id: string;
                 };
                 Insert: {
                     id?: string; // uuid
@@ -69,6 +70,7 @@ export type Database = {
                     description?: string | null; // text
                     position: number; // int4
                     list_id: string; // uuid
+                    board_id: string;
                 };
                 Update: {
                     id?: string;
@@ -77,6 +79,7 @@ export type Database = {
                     description?: string | null;
                     position?: number;
                     list_id?: string;
+                    board_id: string;
                 };
                 Relationships: [
                     {
@@ -234,7 +237,33 @@ export type Database = {
                 };
                 Returns: unknown; // hoặc kiểu trả về cụ thể nếu bạn biết, ví dụ: { id: string }
             };
+            duplicate_list: {
+                Args: {
+                    original_list_id: string; // uuid
+                    new_list_title: string;   // text
+                };
+                Returns: void; // Hàm không trả về dữ liệu
+            };
+            move_list_and_reorder: {
+                Args: {
+                    p_list_id: string       // uuid
+                    p_target_board_id: string // uuid
+                    p_new_position: number  // integer
+                    p_user_id: string       // uuid
+                }
+                Returns: undefined // Hàm trả về void, nên TypeScript sẽ hiểu là undefined
+            }
+            move_all_cards_between_lists: {
+                Args: {
+                    p_source_list_id: string;      // uuid
+                    p_destination_list_id: string; // uuid
+                    p_user_id: string;             // uuid
+                };
+                Returns: undefined; // Hàm trả về void, nên TypeScript sẽ hiểu là undefined
+            }
+
         };
+
 
         Enums: {
             workspace_role: "admin" | "member";
