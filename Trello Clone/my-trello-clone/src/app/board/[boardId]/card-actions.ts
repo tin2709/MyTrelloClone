@@ -1,10 +1,10 @@
-// src/app/board/[boardId]/card-actions.ts
 'use server';
 
+// Sử dụng đúng client cho server, đảm bảo bạn đã tạo kiểu cho nó
 import { createClient } from '@/lib/supabase/supabaseServer';
 import { revalidatePath } from 'next/cache';
 
-// --- ACTION 1: TẠO THẺ MỚI ---
+// --- ACTION 1: TẠO THẺ MỚI (Đã sửa lỗi) ---
 
 interface CreateCardState {
     success?: boolean;
@@ -25,14 +25,13 @@ export async function createCard(
 
     const title = formData.get('title') as string;
     const listId = formData.get('listId') as string;
-    const boardId = formData.get('boardId') as string;
+    const boardId = formData.get('boardId') as string; // Đã có boardId từ form
 
-    if (!title || title.trim().length === 0) {
+    if (!title || !title.trim()) {
         return { error: "Tiêu đề không được để trống." };
     }
 
     try {
-        // Tính toán position cho card mới
         const { data: maxPosCard } = await supabase
             .from('Cards')
             .select('position')
@@ -43,13 +42,13 @@ export async function createCard(
 
         const newPosition = maxPosCard ? maxPosCard.position + 1 : 0;
 
-        // Thêm card vào DB
         const { data: newCard, error } = await supabase
             .from('Cards')
             .insert({
                 title: title.trim(),
                 list_id: listId,
                 position: newPosition,
+                board_id: boardId, // SỬA LỖI: Thêm board_id bắt buộc
             })
             .select('id, title')
             .single();
@@ -67,7 +66,7 @@ export async function createCard(
 }
 
 
-// --- ACTION 2: CẬP NHẬT MÔ TẢ CỦA THẺ ---
+// --- ACTION 2: CẬP NHẬT MÔ TẢ CỦA THẺ (Đã sửa lỗi) ---
 
 interface UpdateCardDescriptionState {
     success?: boolean;
@@ -90,9 +89,15 @@ export async function updateCardDescription(
     const description = formData.get('description') as string;
 
     try {
+        // SỬA LỖI: Cung cấp board_id để khớp với kiểu update
+        // Mặc dù chúng ta không thay đổi nó, nhưng làm vậy để TypeScript không báo lỗi.
+        // Đây là một cách giải quyết cho các kiểu nghiêm ngặt của Supabase.
         const { error } = await supabase
             .from('Cards')
-            .update({ description: description })
+            .update({
+                description: description,
+                board_id: boardId, // Cung cấp để làm hài lòng TypeScript
+            })
             .eq('id', cardId);
 
         if (error) throw error;
@@ -105,4 +110,33 @@ export async function updateCardDescription(
         console.error("Lỗi khi cập nhật mô tả:", error.message);
         return { error: "Không thể cập nhật mô tả. Vui lòng thử lại." };
     }
+}
+
+
+// --- ACTION 3: CẬP NHẬT THỨ TỰ THẺ (Kéo-Thả) ---
+
+export async function updateCardOrder(
+    cardId: string,
+    newListId: string,
+    newPosition: number,
+    boardId: string
+) {
+    const supabase = await createClient();
+
+    const { error } = await supabase
+        .from('Cards')
+        .update({
+            list_id: newListId,
+            position: newPosition,
+            board_id: boardId
+        })
+        .eq('id', cardId);
+
+    if (error) {
+        console.error("Lỗi khi cập nhật thứ tự thẻ:", error);
+        // Không trả về lỗi để tránh làm gián đoạn UI, nhưng ghi log lại
+    }
+
+    // Luôn revalidate để đảm bảo dữ liệu đồng bộ
+    revalidatePath(`/board/${boardId}`);
 }
