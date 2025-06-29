@@ -116,7 +116,17 @@ export async function copyList(
             const { error: cardsError } = await supabase.from('Cards').insert(newCards);
             if (cardsError) throw cardsError;
         }
-
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'COPY_LIST',
+            metadata: {
+                // Để lấy được originalListTitle, bạn cần thêm nó vào form trong component CopyListForm
+                // Ví dụ: <input type="hidden" name="originalListTitle" value={originalList.title} />
+                source_list_name: formData.get('originalListTitle') as string || 'một danh sách',
+                new_list_name: newTitle.trim()
+            }
+        });
         revalidatePath(`/board/${boardId}`);
         return { success: true };
 
@@ -163,7 +173,12 @@ export async function createList(
             .single();
 
         if (error || !newList) throw error || new Error("Không thể tạo danh sách.");
-
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'CREATE_LIST',
+            metadata: { list_name: newList.title }
+        });
         revalidatePath(`/board/${boardId}`);
         return { success: true, list: { ...newList, cards: [] } };
 
@@ -199,6 +214,22 @@ export async function moveList(
     }
 
     try {
+        const { data: listToMoveData, error: listError } = await supabase
+            .from('Lists')
+            .select('title')
+            .eq('id', listId)
+            .single();
+
+        if (listError || !listToMoveData) throw listError || new Error("Không tìm thấy danh sách cần di chuyển.");
+
+        let targetBoardName = '';
+        if (currentBoardId === targetBoardId) {
+            const { data: boardData } = await supabase.from('Boards').select('title').eq('id', currentBoardId).single();
+            targetBoardName = boardData?.title || 'bảng hiện tại';
+        } else {
+            const { data: boardData } = await supabase.from('Boards').select('title').eq('id', targetBoardId).single();
+            targetBoardName = boardData?.title || 'một bảng khác';
+        }
         // Gọi hàm RPC `move_list_and_reorder` đã tạo trong Supabase SQL Editor
         const { error } = await supabase.rpc('move_list_and_reorder', {
             p_list_id: listId,
@@ -210,7 +241,29 @@ export async function moveList(
         if (error) {
             throw error;
         }
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: currentBoardId, // Ghi log vào bảng nguồn
+            action_type: 'MOVE_LIST',
+            metadata: {
+                list_name: listToMoveData.title,
+                destination_board_name: targetBoardName,
+                is_different_board: currentBoardId !== targetBoardId
+            }
+        });
 
+        // Nếu di chuyển sang bảng khác, cũng ghi log cho bảng đích
+        if (currentBoardId !== targetBoardId) {
+            await supabase.from('Activities').insert({
+                user_id: user.id,
+                board_id: targetBoardId,
+                action_type: 'RECEIVE_LIST', // Một loại hành động mới
+                metadata: {
+                    list_name: listToMoveData.title,
+                    source_board_name: (await supabase.from('Boards').select('title').eq('id', currentBoardId).single()).data?.title || 'bảng khác'
+                }
+            });
+        }
         revalidatePath(`/board/${currentBoardId}`);
         if (currentBoardId !== targetBoardId) {
             revalidatePath(`/board/${targetBoardId}`);
@@ -250,6 +303,15 @@ export async function moveAllCards(
     }
 
     try {
+        const { data: listsData, error: listsError } = await supabase
+            .from('Lists')
+            .select('id, title')
+            .in('id', [sourceListId, destinationListId]);
+
+        if (listsError) throw listsError;
+
+        const sourceListName = listsData?.find(l => l.id === sourceListId)?.title;
+        const destListName = listsData?.find(l => l.id === destinationListId)?.title;
         // Gọi hàm RPC `move_all_cards_between_lists` đã tạo ở Bước 1
         const {error} = await supabase.rpc('move_all_cards_between_lists', {
             p_source_list_id: sourceListId,
@@ -261,7 +323,15 @@ export async function moveAllCards(
             // Ném lỗi để bắt ở khối catch bên dưới
             throw error;
         }
-
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'MOVE_ALL_CARDS',
+            metadata: {
+                source_list_name: sourceListName || 'một danh sách',
+                destination_list_name: destListName || 'một danh sách khác'
+            }
+        });
         // Revalidate lại đường dẫn của bảng để cập nhật UI
         revalidatePath(`/board/${boardId}`);
         return {success: true};
