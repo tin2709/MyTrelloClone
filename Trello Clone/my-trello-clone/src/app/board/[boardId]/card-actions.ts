@@ -54,7 +54,17 @@ export async function createCard(
             .single();
 
         if (error) throw error;
+        const { data: listData } = await supabase.from('Lists').select('title').eq('id', listId).single();
 
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'CREATE_CARD',
+            metadata: {
+                card_name: newCard.title,
+                list_name: listData?.title || ''
+            }
+        });
         revalidatePath(`/board/${boardId}`);
         return { success: true, card: newCard };
 
@@ -139,4 +149,25 @@ export async function updateCardOrder(
 
     // Luôn revalidate để đảm bảo dữ liệu đồng bộ
     revalidatePath(`/board/${boardId}`);
+}
+export async function logCardMove(
+    boardId: string,
+    cardName: string,
+    sourceListName: string,
+    destListName: string
+) {
+    const supabase = await createClient();
+    const {data: {user}} = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from('Activities').insert({
+        user_id: user.id,
+        board_id: boardId,
+        action_type: 'MOVE_CARD',
+        metadata: {
+            card_name: cardName,
+            source_list_name: sourceListName,
+            destination_list_name: destListName
+        }
+    });
 }

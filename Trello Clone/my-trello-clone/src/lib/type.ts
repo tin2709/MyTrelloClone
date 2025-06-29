@@ -225,6 +225,108 @@ export type Database = {
                     },
                 ];
             };
+            // Bảng Activities - Lịch sử hoạt động
+            Activities: {
+                // THAY THẾ TOÀN BỘ KHỐI NÀY
+                Row:
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "CREATE_LIST";
+                    metadata: { list_name: string };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "COPY_LIST";
+                    metadata: { source_list_name: string; new_list_name: string };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "CREATE_CARD";
+                    metadata: { card_name: string; list_name: string };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "MOVE_CARD";
+                    metadata: {
+                        card_name: string;
+                        source_list_name: string;
+                        destination_list_name: string;
+                    };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "MOVE_LIST";
+                    metadata: {
+                        list_name: string;
+                        destination_board_name: string;
+                        is_different_board: boolean;
+                    };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "RECEIVE_LIST";
+                    metadata: { list_name: string; source_board_name: string };
+                }
+                    | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "MOVE_ALL_CARDS";
+                    metadata: {
+                        source_list_name: string;
+                        destination_list_name: string;
+                    };
+                };
+                Insert: {
+                    id?: string;
+                    created_at?: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: Database["public"]["Enums"]["activity_type"];
+                    metadata?: Json | null;
+                };
+                Update: {
+                    id?: string;
+                    created_at?: string;
+                    user_id?: string;
+                    board_id?: string;
+                    action_type?: Database["public"]["Enums"]["activity_type"];
+                    metadata?: Json | null;
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Activities_user_id_fkey";
+                        columns: ["user_id"];
+                        referencedRelation: "Users";
+                        referencedColumns: ["id"];
+                    },
+                    {
+                        foreignKeyName: "Activities_board_id_fkey";
+                        columns: ["board_id"];
+                        referencedRelation: "Boards";
+                        referencedColumns: ["id"];
+                    }
+                ];
+            };
         };
         Views: {
             [_ in never]: never;
@@ -267,6 +369,14 @@ export type Database = {
 
         Enums: {
             workspace_role: "admin" | "member";
+            activity_type:
+                | "CREATE_LIST"
+                | "COPY_LIST"
+                | "CREATE_CARD"
+                | "MOVE_CARD"
+                | "MOVE_LIST"
+                | "RECEIVE_LIST"
+                | "MOVE_ALL_CARDS";
         };
         CompositeTypes: {
             [_ in never]: never;
