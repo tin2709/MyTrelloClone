@@ -1,3 +1,5 @@
+// /components/ListActionsMenu.tsx
+
 'use client';
 
 import React, { useRef, useEffect } from 'react';
@@ -9,10 +11,21 @@ interface ListActionsMenuProps {
     onCopyClick: () => void;
     onMoveClick: () => void;
     onMoveAllCardsClick: () => void;
+    onArchiveClick: () => void;
+    onArchiveAllCardsClick: () => void; // Thêm prop này
 }
 
-export const ListActionsMenu = ({ onClose, onAddCardClick, onCopyClick, onMoveClick, onMoveAllCardsClick }: ListActionsMenuProps) => {
+export const ListActionsMenu = ({
+                                    onClose,
+                                    onAddCardClick,
+                                    onCopyClick,
+                                    onMoveClick,
+                                    onMoveAllCardsClick,
+                                    onArchiveClick,
+                                    onArchiveAllCardsClick // Thêm prop này
+                                }: ListActionsMenuProps) => {
     const menuRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -35,8 +48,19 @@ export const ListActionsMenu = ({ onClose, onAddCardClick, onCopyClick, onMoveCl
                 <button onClick={() => { onAddCardClick(); onClose(); }} className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100">Thêm thẻ</button>
                 <button onClick={() => { onCopyClick(); onClose(); }} className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100">Sao chép danh sách</button>
                 <button onClick={() => { onMoveClick(); onClose(); }} className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100">Di chuyển danh sách</button>
-                <div className="my-1 border-t"></div>
                 <button onClick={() => { onMoveAllCardsClick(); onClose(); }} className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100">Di chuyển tất cả thẻ trong danh sách này</button>
+                <hr className="my-1" />
+                <button
+                    onClick={() => { onArchiveAllCardsClick(); onClose(); }} // <<< SỬA Ở ĐÂY
+                    className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100">
+                    Lưu trữ tất cả thẻ trong danh sách này
+                </button>
+                <button
+                    onClick={() => { onArchiveClick(); onClose(); }}
+                    className="w-full text-left text-sm px-3 py-1.5 rounded-sm hover:bg-gray-100"
+                >
+                    Lưu trữ danh sách này
+                </button>
             </nav>
         </div>
     );

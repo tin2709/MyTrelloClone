@@ -106,7 +106,7 @@ export async function updateCardDescription(
             .from('Cards')
             .update({
                 description: description,
-                board_id: boardId, // Cung cấp để làm hài lòng TypeScript
+                // board_id: boardId, // Cung cấp để làm hài lòng TypeScript (có thể không cần nếu ko update)
             })
             .eq('id', cardId);
 
@@ -138,7 +138,6 @@ export async function updateCardOrder(
         .update({
             list_id: newListId,
             position: newPosition,
-            board_id: boardId
         })
         .eq('id', cardId);
 
@@ -170,4 +169,115 @@ export async function logCardMove(
             destination_list_name: destListName
         }
     });
+}
+
+// =======================================================================
+// --- BẮT ĐẦU PHẦN CODE MỚI ---
+// =======================================================================
+
+// Interface chung cho kết quả trả về của các action đơn giản
+interface ActionState {
+    success?: boolean;
+    error?: string;
+}
+
+/**
+ * Khôi phục một thẻ đã được lưu trữ (soft delete).
+ * Cập nhật cột `archived_at` về lại NULL.
+ * @param cardId - ID của thẻ cần khôi phục.
+ * @param boardId - ID của bảng chứa thẻ để revalidate.
+ * @param cardTitle - Tiêu đề của thẻ để ghi log hoạt động.
+ */
+export async function restoreCard(
+    cardId: string,
+    boardId: string,
+    cardTitle: string
+): Promise<ActionState> {
+    const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        return { error: "Bạn phải đăng nhập." };
+    }
+
+    if (!cardId || !boardId || !cardTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        // Cập nhật trường archived_at về null để khôi phục thẻ
+        const { error } = await supabase
+            .from('Cards')
+            .update({ archived_at: null })
+            .eq('id', cardId);
+
+        if (error) throw error;
+
+        // Ghi log hoạt động
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'RESTORE_CARD',
+            metadata: { card_name: cardTitle }
+        });
+
+        // Revalidate lại đường dẫn của bảng để UI được cập nhật
+        revalidatePath(`/board/${boardId}`);
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi khôi phục thẻ:", error.message);
+        return { error: `Không thể khôi phục thẻ: ${error.message}` };
+    }
+}
+
+/**
+ * Xóa vĩnh viễn một thẻ (hard delete).
+ * @param cardId - ID của thẻ cần xóa.
+ * @param boardId - ID của bảng chứa thẻ để revalidate.
+ * @param cardTitle - Tiêu đề của thẻ để ghi log hoạt động.
+ */
+export async function deleteCard(
+    cardId: string,
+    boardId: string,
+    cardTitle: string
+): Promise<ActionState> {
+    const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        return { error: "Bạn phải đăng nhập." };
+    }
+
+    if (!cardId || !boardId || !cardTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        // Xóa vĩnh viễn thẻ khỏi cơ sở dữ liệu
+        const { error } = await supabase
+            .from('Cards')
+            .delete()
+            .eq('id', cardId);
+
+        if (error) throw error;
+
+        // Ghi log hoạt động
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'DELETE_CARD',
+            metadata: { card_name: cardTitle }
+        });
+
+        // Revalidate lại đường dẫn của bảng để UI được cập nhật
+        revalidatePath(`/board/${boardId}`);
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi xóa thẻ:", error.message);
+        return { error: `Không thể xóa thẻ: ${error.message}` };
+    }
 }

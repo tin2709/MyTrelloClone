@@ -14,7 +14,14 @@ interface ActionState {
 interface CreateListState extends ActionState {
     list?: { id: string; title: string; cards: [] };
 }
-
+export interface ArchivedCard {
+    id: string;
+    title: string;
+    // Lấy thêm tên danh sách mà thẻ này thuộc về
+    Lists: {
+        title: string;
+    } | null;
+}
 /**
  * Cập nhật vị trí của nhiều danh sách cùng lúc.
  * Thường được gọi sau khi người dùng kéo-thả để sắp xếp lại các danh sách.
@@ -340,5 +347,261 @@ export async function moveAllCards(
         const error = e as Error;
         console.error("Lỗi khi di chuyển toàn bộ thẻ:", error);
         return {error: `Không thể di chuyển các thẻ: ${error.message}`};
+    }
+}
+interface ArchiveListState extends ActionState {
+    archivedListId?: string;
+}
+/**
+ * Lưu trữ một danh sách (Soft Delete).
+ * Cập nhật cột `archived_at` thành ngày giờ hiện tại.
+ */
+export async function archiveList(
+    prevState: ArchiveListState,
+    formData: FormData
+): Promise<ArchiveListState> {
+    const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Bạn phải đăng nhập." };
+
+    const listId = formData.get('id') as string;
+    const boardId = formData.get('boardId') as string;
+    const listTitle = formData.get('title') as string;
+
+    if (!listId || !boardId || !listTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        const { error } = await supabase
+            .from('Lists')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', listId);
+
+        if (error) throw error;
+
+        // Bọc payload trong mảng để tránh lỗi TS
+        await supabase.from('Activities').insert([{
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'ARCHIVE_LIST',
+            metadata: { list_name: listTitle }
+        }]);
+
+        revalidatePath(`/board/${boardId}`);
+        // TRẢ VỀ ID CỦA LIST ĐÃ LƯU TRỮ
+        return { success: true, archivedListId: listId };
+
+    } catch (e) {
+        const error = e as Error;
+        return { error: `Không thể lưu trữ danh sách: ${error.message}` };
+    }
+}
+
+
+
+type RestoreListState = ActionState;
+
+/**
+ * Khôi phục một danh sách đã lưu trữ.
+ * Cập nhật cột `archived_at` về lại NULL.
+ */
+export async function restoreList(
+    prevState: RestoreListState,
+    formData: FormData
+): Promise<RestoreListState> {
+    const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Bạn phải đăng nhập." };
+
+    const listId = formData.get('id') as string;
+    const boardId = formData.get('boardId') as string;
+    const listTitle = formData.get('title') as string;
+
+    if (!listId || !boardId || !listTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        const { error } = await supabase
+            .from('Lists')
+            .update({ archived_at: null }) // Set lại là NULL
+            .eq('id', listId);
+
+        if (error) throw error;
+
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'RESTORE_LIST',
+            metadata: { list_name: listTitle }
+        });
+
+        revalidatePath(`/board/${boardId}`);
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        return { error: `Không thể khôi phục danh sách: ${error.message}` };
+    }
+}
+
+
+type DeleteListState = ActionState;
+
+/**
+ * Xóa vĩnh viễn một danh sách (Hard Delete).
+ * Thao tác này sẽ xóa cả danh sách và các thẻ bên trong nó.
+ */
+export async function deleteList(
+    prevState: DeleteListState,
+    formData: FormData
+): Promise<DeleteListState> {
+    const supabase = await createClient();
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Bạn phải đăng nhập." };
+
+    const listId = formData.get('id') as string;
+    const boardId = formData.get('boardId') as string;
+    const listTitle = formData.get('title') as string;
+
+    if (!listId || !boardId || !listTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        // Thao tác này sẽ xóa hàng trong bảng `Lists`.
+        // Các thẻ liên quan cũng sẽ bị xóa nếu bạn đã thiết lập
+        // Foreign Key với `ON DELETE CASCADE`.
+        const { error } = await supabase
+            .from('Lists')
+            .delete()
+            .eq('id', listId);
+
+        if (error) throw error;
+
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'DELETE_LIST',
+            metadata: { list_name: listTitle }
+        });
+
+        revalidatePath(`/board/${boardId}`);
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        return { error: `Không thể xóa vĩnh viễn danh sách: ${error.message}` };
+    }
+}
+
+export async function getArchivedListsByBoard(boardId: string) {
+    // Kiểm tra đầu vào cơ bản
+    if (!boardId) {
+        console.error("Board ID không được cung cấp.");
+        return [];
+    }
+
+    const supabase = await createClient();
+
+    try {
+        const {data, error} = await supabase
+            .from('Lists')
+            .select('id, title') // Chỉ lấy các trường cần thiết
+            .eq('board_id', boardId)
+            .not('archived_at', 'is', null) // Điều kiện quan trọng: chỉ lấy list đã lưu trữ
+            .order('archived_at', {ascending: false}); // Sắp xếp theo ngày lưu trữ gần nhất
+
+        if (error) {
+            // Ném lỗi để bắt ở khối catch
+            throw error;
+        }
+
+        return data;
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi lấy danh sách đã lưu trữ:", error.message);
+        // Trả về một mảng rỗng trong trường hợp có lỗi để tránh crash ở client
+        return [];
+    }
+}
+type ArchiveAllCardsState = ActionState;
+
+export async function archiveAllCardsInList(
+    prevState: ArchiveAllCardsState,
+    formData: FormData
+): Promise<ArchiveAllCardsState> {
+    const supabase = await createClient();
+    const {data: {user}} = await supabase.auth.getUser();
+    if (!user) {
+        return {error: "Bạn phải đăng nhập."};
+    }
+
+    const listId = formData.get('listId') as string;
+    const boardId = formData.get('boardId') as string;
+    const listTitle = formData.get('listTitle') as string;
+
+    if (!listId || !boardId || !listTitle) {
+        return {error: "Thiếu thông tin cần thiết."};
+    }
+
+    try {
+        // Cập nhật tất cả các thẻ có list_id tương ứng
+        const {error} = await supabase
+            .from('Cards')
+            .update({archived_at: new Date().toISOString()})
+            .eq('list_id', listId)
+            .is('archived_at', null); // Chỉ lưu trữ những thẻ chưa được lưu trữ
+
+        if (error) throw error;
+
+        // Ghi log hoạt động
+        await supabase.from('Activities').insert({
+            user_id: user.id,
+            board_id: boardId,
+            action_type: 'ARCHIVE_ALL_CARDS',
+            metadata: {list_name: listTitle}
+        });
+
+        revalidatePath(`/board/${boardId}`);
+        return {success: true};
+
+    } catch (e) {
+        const error = e as Error;
+        return {error: `Không thể lưu trữ các thẻ: ${error.message}`};
+    }
+}
+export async function getArchivedCardsByBoard(boardId: string): Promise<ArchivedCard[]> {
+    if (!boardId) {
+        console.error("Board ID không được cung cấp.");
+        return [];
+    }
+
+    const supabase = await createClient();
+
+    try {
+        const { data, error } = await supabase
+            .from('Cards')
+            // Lấy các trường cần thiết và join với bảng Lists để lấy tên danh sách
+            .select('id, title, Lists(title)')
+            .eq('board_id', boardId)
+            .not('archived_at', 'is', null) // Chỉ lấy thẻ đã lưu trữ
+            .order('archived_at', { ascending: false });
+
+        if (error) {
+            throw error;
+        }
+
+        return data as ArchivedCard[];
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi lấy thẻ đã lưu trữ:", error.message);
+        return [];
     }
 }

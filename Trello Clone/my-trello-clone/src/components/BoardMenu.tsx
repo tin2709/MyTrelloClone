@@ -8,9 +8,10 @@ import { LuX, LuList, LuArchive, LuSettings, LuImage } from 'react-icons/lu';
 interface BoardMenuProps {
     onClose: () => void;
     onShowActivity: () => void;
+    onShowArchive: () => void;
 }
 
-const BoardMenu = ({ onClose, onShowActivity }: BoardMenuProps) => {
+const BoardMenu = ({ onClose, onShowActivity,onShowArchive }: BoardMenuProps) => {
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -45,7 +46,8 @@ const BoardMenu = ({ onClose, onShowActivity }: BoardMenuProps) => {
                     <LuList size={20} />
                     <span className="font-medium">Hoạt động</span>
                 </button>
-                <button className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-gray-800">
+                <button onClick={onShowArchive}
+                        className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-gray-100 text-gray-800">
                     <LuArchive size={20} />
                     <span className="font-medium">Mục đã lưu trữ</span>
                 </button>
