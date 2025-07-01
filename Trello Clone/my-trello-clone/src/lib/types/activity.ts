@@ -58,7 +58,32 @@ export interface MoveAllCardsActivity extends BaseActivity {
         destination_list_name: string;
     };
 }
+export interface ArchiveListActivity extends BaseActivity {
+    action_type: 'ARCHIVE_LIST';
+    metadata: { list_name: string };
+}
 
+export interface RestoreListActivity extends BaseActivity {
+    action_type: 'RESTORE_LIST';
+    metadata: { list_name: string };
+}
+
+export interface DeleteListActivity extends BaseActivity {
+    action_type: 'DELETE_LIST';
+    metadata: { list_name: string };
+}
+export interface ArchiveAllCardofListActivity extends BaseActivity {
+    action_type: 'ARCHIVE_All_CARDS';
+    metadata: { list_name: string };
+}
+export interface RestoreCardActivity extends BaseActivity {
+    action_type: 'RESTORE_CARD';
+    metadata: { list_name: string };
+}
+export interface DeleteCardActivity extends BaseActivity {
+    action_type: 'DELETE_CARDS';
+    metadata: { list_name: string };
+}
 // Tạo một Union Type từ tất cả các interface trên
 export type Activity =
     | CreateListActivity
@@ -67,8 +92,13 @@ export type Activity =
     | MoveCardActivity
     | MoveListActivity
     | ReceiveListActivity
-    | MoveAllCardsActivity;
-
+    | MoveAllCardsActivity
+    | ArchiveListActivity
+    | RestoreListActivity
+    | DeleteListActivity
+    | ArchiveAllCardofListActivity
+    | RestoreCardActivity
+    | DeleteCardActivity
 // SỬA LỖI 1: Bỏ đi hàm bị lồng nhau, chỉ giữ lại một
 export function isActivity(obj: unknown): obj is Activity {
     // Dòng if này rất quan trọng, nó kiểm tra để đảm bảo obj là một object
@@ -120,6 +150,23 @@ export function isActivity(obj: unknown): obj is Activity {
             return typeof activity.metadata.source_list_name === 'string' &&
                 typeof activity.metadata.destination_list_name === 'string';
 
+        case 'ARCHIVE_LIST':
+            return typeof activity.metadata.list_name === 'string';
+
+        case 'RESTORE_LIST':
+            return typeof activity.metadata.list_name === 'string';
+
+        case 'DELETE_LIST':
+            return typeof activity.metadata.list_name === 'string';
+
+        case 'ARCHIVE_ALLCARD':
+            return typeof activity.metadata.list_name === 'string';
+
+        case 'RESTORE_CARD':
+            return typeof activity.metadata.list_name === 'string';
+
+        case 'DELETE_CARD':
+            return typeof activity.metadata.list_name === 'string';
         default:
             return false; // Không nhận dạng được action_type
     }

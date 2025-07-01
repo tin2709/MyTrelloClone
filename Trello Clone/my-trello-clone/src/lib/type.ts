@@ -62,6 +62,7 @@ export type Database = {
                     position: number; // int4
                     list_id: string; // uuid
                     board_id: string;
+                    archived_at: string | null;
                 };
                 Insert: {
                     id?: string; // uuid
@@ -71,6 +72,7 @@ export type Database = {
                     position: number; // int4
                     list_id: string; // uuid
                     board_id: string;
+                    archived_at?: string | null;
                 };
                 Update: {
                     id?: string;
@@ -79,7 +81,8 @@ export type Database = {
                     description?: string | null;
                     position?: number;
                     list_id?: string;
-                    board_id: string;
+                    board_id?: string;
+                    archived_at?: string | null;
                 };
                 Relationships: [
                     {
@@ -99,6 +102,7 @@ export type Database = {
                     title: string; // text
                     position: number; // int4
                     board_id: string; // uuid
+                    archived_at: string | null;
                 };
                 Insert: {
                     id?: string; // uuid
@@ -106,6 +110,7 @@ export type Database = {
                     title: string; // text
                     position: number; // int4
                     board_id: string; // uuid
+                    archived_at?: string | null;
                 };
                 Update: {
                     id?: string;
@@ -113,6 +118,7 @@ export type Database = {
                     title?: string;
                     position?: number;
                     board_id?: string;
+                    archived_at?: string | null;
                 };
                 Relationships: [
                     {
@@ -295,6 +301,54 @@ export type Database = {
                         source_list_name: string;
                         destination_list_name: string;
                     };
+                }
+                | {
+                id: string;
+                created_at: string;
+                user_id: string;
+                board_id: string;
+                action_type: "ARCHIVE_LIST";
+                metadata: { list_name: string };
+                }
+                | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "RESTORE_LIST";
+                    metadata: { list_name: string };
+                }
+                | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "DELETE_LIST";
+                    metadata: { list_name: string };
+                }
+                | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "ARCHIVE_ALL_CARDS";
+                    metadata: { list_name: string };
+                }
+                | {
+                    id: string;
+                    created_at: string;
+                    user_id: string;
+                    board_id: string;
+                    action_type: "RESTORE_CARD";
+                    metadata: { list_name: string };
+                }
+                | {
+                     id: string;
+                     created_at: string;
+                     user_id: string;
+                     board_id: string;
+                     action_type: "DELETE_CARD";
+                     metadata: { list_name: string };
                 };
                 Insert: {
                     id?: string;
@@ -376,7 +430,13 @@ export type Database = {
                 | "MOVE_CARD"
                 | "MOVE_LIST"
                 | "RECEIVE_LIST"
-                | "MOVE_ALL_CARDS";
+                | "MOVE_ALL_CARDS"
+                | "ARCHIVE_LIST"
+                | "RESTORE_LIST"
+                | "DELETE_LIST"
+                | "ARCHIVE_ALL_CARDS"
+                | "RESTORE_CARD"
+                | "DELETE_CARD"
         };
         CompositeTypes: {
             [_ in never]: never;

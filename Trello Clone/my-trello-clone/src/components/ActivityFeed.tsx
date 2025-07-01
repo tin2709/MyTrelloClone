@@ -46,7 +46,6 @@ const renderActivityMessage = (activity: ActivityWithUser) => {
             return <>{userName} đã di chuyển tất cả thẻ từ <strong>{metadata.source_list_name}</strong> sang <strong>{metadata.destination_list_name}</strong>.</>;
         default:
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const _exhaustiveCheck: never = action_type;
             return <>{userName} đã thực hiện một hành động.</>;
     }
 }
