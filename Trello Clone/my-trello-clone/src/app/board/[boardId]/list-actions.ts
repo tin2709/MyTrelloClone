@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/supabaseServer';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server'; // Thêm import after()
 
 // Interface dùng chung cho các kết quả trả về của action
 interface ActionState {
@@ -17,14 +18,13 @@ interface CreateListState extends ActionState {
 export interface ArchivedCard {
     id: string;
     title: string;
-    // Lấy thêm tên danh sách mà thẻ này thuộc về
     Lists: {
         title: string;
     } | null;
 }
+
 /**
  * Cập nhật vị trí của nhiều danh sách cùng lúc.
- * Thường được gọi sau khi người dùng kéo-thả để sắp xếp lại các danh sách.
  */
 export async function updateListOrder(
     items: { id: string; position: number }[],
@@ -56,7 +56,15 @@ export async function updateListOrder(
             throw firstError.error;
         }
 
-        revalidatePath(`/board/${boardId}`);
+        // Tác vụ phụ: revalidate path
+        after(() => {
+            try {
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi revalidate thứ tự danh sách:", err);
+            }
+        });
+
         return { success: true };
 
     } catch (e) {
@@ -81,6 +89,7 @@ export async function copyList(
     const newTitle = formData.get('title') as string;
     const originalListId = formData.get('originalListId') as string;
     const boardId = formData.get('boardId') as string;
+    const originalListTitle = formData.get('originalListTitle') as string || 'một danh sách';
 
     if (!newTitle || newTitle.trim().length === 0) {
         return { errors: { title: "Tiêu đề không được để trống." } };
@@ -123,18 +132,25 @@ export async function copyList(
             const { error: cardsError } = await supabase.from('Cards').insert(newCards);
             if (cardsError) throw cardsError;
         }
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'COPY_LIST',
-            metadata: {
-                // Để lấy được originalListTitle, bạn cần thêm nó vào form trong component CopyListForm
-                // Ví dụ: <input type="hidden" name="originalListTitle" value={originalList.title} />
-                source_list_name: formData.get('originalListTitle') as string || 'một danh sách',
-                new_list_name: newTitle.trim()
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'COPY_LIST',
+                    metadata: {
+                        source_list_name: originalListTitle,
+                        new_list_name: newTitle.trim()
+                    }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho copyList:", err);
             }
         });
-        revalidatePath(`/board/${boardId}`);
+
         return { success: true };
 
     } catch (e) {
@@ -180,13 +196,22 @@ export async function createList(
             .single();
 
         if (error || !newList) throw error || new Error("Không thể tạo danh sách.");
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'CREATE_LIST',
-            metadata: { list_name: newList.title }
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'CREATE_LIST',
+                    metadata: { list_name: newList.title }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho createList:", err);
+            }
         });
-        revalidatePath(`/board/${boardId}`);
+
         return { success: true, list: { ...newList, cards: [] } };
 
     } catch (e) {
@@ -229,15 +254,7 @@ export async function moveList(
 
         if (listError || !listToMoveData) throw listError || new Error("Không tìm thấy danh sách cần di chuyển.");
 
-        let targetBoardName = '';
-        if (currentBoardId === targetBoardId) {
-            const { data: boardData } = await supabase.from('Boards').select('title').eq('id', currentBoardId).single();
-            targetBoardName = boardData?.title || 'bảng hiện tại';
-        } else {
-            const { data: boardData } = await supabase.from('Boards').select('title').eq('id', targetBoardId).single();
-            targetBoardName = boardData?.title || 'một bảng khác';
-        }
-        // Gọi hàm RPC `move_list_and_reorder` đã tạo trong Supabase SQL Editor
+        // Tác vụ cốt lõi: Gọi RPC
         const { error } = await supabase.rpc('move_list_and_reorder', {
             p_list_id: listId,
             p_target_board_id: targetBoardId,
@@ -248,33 +265,48 @@ export async function moveList(
         if (error) {
             throw error;
         }
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: currentBoardId, // Ghi log vào bảng nguồn
-            action_type: 'MOVE_LIST',
-            metadata: {
-                list_name: listToMoveData.title,
-                destination_board_name: targetBoardName,
-                is_different_board: currentBoardId !== targetBoardId
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                let targetBoardName = '';
+                if (currentBoardId === targetBoardId) {
+                    const { data: boardData } = await supabase.from('Boards').select('title').eq('id', currentBoardId).single();
+                    targetBoardName = boardData?.title || 'bảng hiện tại';
+                } else {
+                    const { data: boardData } = await supabase.from('Boards').select('title').eq('id', targetBoardId).single();
+                    targetBoardName = boardData?.title || 'một bảng khác';
+                }
+
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: currentBoardId,
+                    action_type: 'MOVE_LIST',
+                    metadata: {
+                        list_name: listToMoveData.title,
+                        destination_board_name: targetBoardName,
+                        is_different_board: currentBoardId !== targetBoardId
+                    }
+                });
+
+                if (currentBoardId !== targetBoardId) {
+                    const sourceBoardName = (await supabase.from('Boards').select('title').eq('id', currentBoardId).single()).data?.title || 'bảng khác';
+                    await supabase.from('Activities').insert({
+                        user_id: user.id,
+                        board_id: targetBoardId,
+                        action_type: 'RECEIVE_LIST',
+                        metadata: { list_name: listToMoveData.title, source_board_name: sourceBoardName }
+                    });
+                }
+
+                revalidatePath(`/board/${currentBoardId}`);
+                if (currentBoardId !== targetBoardId) {
+                    revalidatePath(`/board/${targetBoardId}`);
+                }
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho moveList:", err);
             }
         });
-
-        // Nếu di chuyển sang bảng khác, cũng ghi log cho bảng đích
-        if (currentBoardId !== targetBoardId) {
-            await supabase.from('Activities').insert({
-                user_id: user.id,
-                board_id: targetBoardId,
-                action_type: 'RECEIVE_LIST', // Một loại hành động mới
-                metadata: {
-                    list_name: listToMoveData.title,
-                    source_board_name: (await supabase.from('Boards').select('title').eq('id', currentBoardId).single()).data?.title || 'bảng khác'
-                }
-            });
-        }
-        revalidatePath(`/board/${currentBoardId}`);
-        if (currentBoardId !== targetBoardId) {
-            revalidatePath(`/board/${targetBoardId}`);
-        }
 
         return { success: true };
 
@@ -282,8 +314,8 @@ export async function moveList(
         const error = e as Error;
         return { error: `Không thể di chuyển danh sách: ${error.message}` };
     }
-
 }
+
 type MoveAllCardsState = ActionState
 
 export async function moveAllCards(
@@ -299,48 +331,48 @@ export async function moveAllCards(
 
     const sourceListId = formData.get('sourceListId') as string;
     const destinationListId = formData.get('destinationListId') as string;
-    const boardId = formData.get('boardId') as string; // Cần để revalidate
+    const boardId = formData.get('boardId') as string;
 
-    // --- Validation ---
     if (!sourceListId || !destinationListId || !boardId) {
-        return {error: "Thiếu thông tin cần thiết (sourceListId, destinationListId, boardId)."};
+        return {error: "Thiếu thông tin cần thiết."};
     }
     if (sourceListId === destinationListId) {
         return {error: "Không thể di chuyển thẻ đến chính danh sách đó."};
     }
 
     try {
-        const { data: listsData, error: listsError } = await supabase
-            .from('Lists')
-            .select('id, title')
-            .in('id', [sourceListId, destinationListId]);
-
-        if (listsError) throw listsError;
-
-        const sourceListName = listsData?.find(l => l.id === sourceListId)?.title;
-        const destListName = listsData?.find(l => l.id === destinationListId)?.title;
-        // Gọi hàm RPC `move_all_cards_between_lists` đã tạo ở Bước 1
-        const {error} = await supabase.rpc('move_all_cards_between_lists', {
+        const { error } = await supabase.rpc('move_all_cards_between_lists', {
             p_source_list_id: sourceListId,
             p_destination_list_id: destinationListId,
             p_user_id: user.id
         });
 
         if (error) {
-            // Ném lỗi để bắt ở khối catch bên dưới
             throw error;
         }
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'MOVE_ALL_CARDS',
-            metadata: {
-                source_list_name: sourceListName || 'một danh sách',
-                destination_list_name: destListName || 'một danh sách khác'
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                const { data: listsData } = await supabase.from('Lists').select('id, title').in('id', [sourceListId, destinationListId]);
+                const sourceListName = listsData?.find(l => l.id === sourceListId)?.title;
+                const destListName = listsData?.find(l => l.id === destinationListId)?.title;
+
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'MOVE_ALL_CARDS',
+                    metadata: {
+                        source_list_name: sourceListName || 'một danh sách',
+                        destination_list_name: destListName || 'một danh sách khác'
+                    }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho moveAllCards:", err);
             }
         });
-        // Revalidate lại đường dẫn của bảng để cập nhật UI
-        revalidatePath(`/board/${boardId}`);
+
         return {success: true};
 
     } catch (e) {
@@ -349,12 +381,12 @@ export async function moveAllCards(
         return {error: `Không thể di chuyển các thẻ: ${error.message}`};
     }
 }
+
 interface ArchiveListState extends ActionState {
     archivedListId?: string;
 }
 /**
  * Lưu trữ một danh sách (Soft Delete).
- * Cập nhật cột `archived_at` thành ngày giờ hiện tại.
  */
 export async function archiveList(
     prevState: ArchiveListState,
@@ -381,16 +413,21 @@ export async function archiveList(
 
         if (error) throw error;
 
-        // Bọc payload trong mảng để tránh lỗi TS
-        await supabase.from('Activities').insert([{
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'ARCHIVE_LIST',
-            metadata: { list_name: listTitle }
-        }]);
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert([{
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'ARCHIVE_LIST',
+                    metadata: { list_name: listTitle }
+                }]);
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho archiveList:", err);
+            }
+        });
 
-        revalidatePath(`/board/${boardId}`);
-        // TRẢ VỀ ID CỦA LIST ĐÃ LƯU TRỮ
         return { success: true, archivedListId: listId };
 
     } catch (e) {
@@ -399,13 +436,10 @@ export async function archiveList(
     }
 }
 
-
-
 type RestoreListState = ActionState;
 
 /**
  * Khôi phục một danh sách đã lưu trữ.
- * Cập nhật cột `archived_at` về lại NULL.
  */
 export async function restoreList(
     prevState: RestoreListState,
@@ -427,19 +461,26 @@ export async function restoreList(
     try {
         const { error } = await supabase
             .from('Lists')
-            .update({ archived_at: null }) // Set lại là NULL
+            .update({ archived_at: null })
             .eq('id', listId);
 
         if (error) throw error;
 
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'RESTORE_LIST',
-            metadata: { list_name: listTitle }
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'RESTORE_LIST',
+                    metadata: { list_name: listTitle }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho restoreList:", err);
+            }
         });
 
-        revalidatePath(`/board/${boardId}`);
         return { success: true };
 
     } catch (e) {
@@ -453,7 +494,6 @@ type DeleteListState = ActionState;
 
 /**
  * Xóa vĩnh viễn một danh sách (Hard Delete).
- * Thao tác này sẽ xóa cả danh sách và các thẻ bên trong nó.
  */
 export async function deleteList(
     prevState: DeleteListState,
@@ -473,9 +513,6 @@ export async function deleteList(
     }
 
     try {
-        // Thao tác này sẽ xóa hàng trong bảng `Lists`.
-        // Các thẻ liên quan cũng sẽ bị xóa nếu bạn đã thiết lập
-        // Foreign Key với `ON DELETE CASCADE`.
         const { error } = await supabase
             .from('Lists')
             .delete()
@@ -483,14 +520,21 @@ export async function deleteList(
 
         if (error) throw error;
 
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'DELETE_LIST',
-            metadata: { list_name: listTitle }
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'DELETE_LIST',
+                    metadata: { list_name: listTitle }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho deleteList:", err);
+            }
         });
 
-        revalidatePath(`/board/${boardId}`);
         return { success: true };
 
     } catch (e) {
@@ -499,37 +543,6 @@ export async function deleteList(
     }
 }
 
-export async function getArchivedListsByBoard(boardId: string) {
-    // Kiểm tra đầu vào cơ bản
-    if (!boardId) {
-        console.error("Board ID không được cung cấp.");
-        return [];
-    }
-
-    const supabase = await createClient();
-
-    try {
-        const {data, error} = await supabase
-            .from('Lists')
-            .select('id, title') // Chỉ lấy các trường cần thiết
-            .eq('board_id', boardId)
-            .not('archived_at', 'is', null) // Điều kiện quan trọng: chỉ lấy list đã lưu trữ
-            .order('archived_at', {ascending: false}); // Sắp xếp theo ngày lưu trữ gần nhất
-
-        if (error) {
-            // Ném lỗi để bắt ở khối catch
-            throw error;
-        }
-
-        return data;
-
-    } catch (e) {
-        const error = e as Error;
-        console.error("Lỗi khi lấy danh sách đã lưu trữ:", error.message);
-        // Trả về một mảng rỗng trong trường hợp có lỗi để tránh crash ở client
-        return [];
-    }
-}
 type ArchiveAllCardsState = ActionState;
 
 export async function archiveAllCardsInList(
@@ -551,24 +564,29 @@ export async function archiveAllCardsInList(
     }
 
     try {
-        // Cập nhật tất cả các thẻ có list_id tương ứng
         const {error} = await supabase
             .from('Cards')
             .update({archived_at: new Date().toISOString()})
             .eq('list_id', listId)
-            .is('archived_at', null); // Chỉ lưu trữ những thẻ chưa được lưu trữ
+            .is('archived_at', null);
 
         if (error) throw error;
 
-        // Ghi log hoạt động
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'ARCHIVE_ALL_CARDS',
-            metadata: {list_name: listTitle}
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'ARCHIVE_ALL_CARDS',
+                    metadata: {list_name: listTitle}
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho archiveAllCardsInList:", err);
+            }
         });
 
-        revalidatePath(`/board/${boardId}`);
         return {success: true};
 
     } catch (e) {
@@ -576,29 +594,46 @@ export async function archiveAllCardsInList(
         return {error: `Không thể lưu trữ các thẻ: ${error.message}`};
     }
 }
+
+// === CÁC HÀM GET DỮ LIỆU (KHÔNG CẦN DÙNG after()) ===
+
+export async function getArchivedListsByBoard(boardId: string) {
+    if (!boardId) {
+        console.error("Board ID không được cung cấp.");
+        return [];
+    }
+    const supabase = await createClient();
+    try {
+        const {data, error} = await supabase
+            .from('Lists')
+            .select('id, title')
+            .eq('board_id', boardId)
+            .not('archived_at', 'is', null)
+            .order('archived_at', {ascending: false});
+        if (error) throw error;
+        return data;
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi lấy danh sách đã lưu trữ:", error.message);
+        return [];
+    }
+}
+
 export async function getArchivedCardsByBoard(boardId: string): Promise<ArchivedCard[]> {
     if (!boardId) {
         console.error("Board ID không được cung cấp.");
         return [];
     }
-
     const supabase = await createClient();
-
     try {
         const { data, error } = await supabase
             .from('Cards')
-            // Lấy các trường cần thiết và join với bảng Lists để lấy tên danh sách
             .select('id, title, Lists(title)')
             .eq('board_id', boardId)
-            .not('archived_at', 'is', null) // Chỉ lấy thẻ đã lưu trữ
+            .not('archived_at', 'is', null)
             .order('archived_at', { ascending: false });
-
-        if (error) {
-            throw error;
-        }
-
+        if (error) throw error;
         return data as ArchivedCard[];
-
     } catch (e) {
         const error = e as Error;
         console.error("Lỗi khi lấy thẻ đã lưu trữ:", error.message);

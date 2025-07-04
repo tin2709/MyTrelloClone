@@ -84,6 +84,41 @@ export interface DeleteCardActivity extends BaseActivity {
     action_type: 'DELETE_CARDS';
     metadata: { list_name: string };
 }
+export interface MarkCardActivity  extends BaseActivity {
+    action_type: 'MARK_CARD';
+    metadata: { list_name: string };
+}
+export interface CreateChecklistActivity extends BaseActivity {
+    action_type: 'CREATE_CHECKLIST';
+    metadata: {
+        card_name: string;
+        checklist_name: string;
+    };
+}
+
+export interface DeleteChecklistActivity extends BaseActivity {
+    action_type: 'DELETE_CHECKLIST';
+    metadata: {
+        card_name: string;
+        checklist_name: string;
+    };
+}
+
+export interface CreateChecklistItemActivity extends BaseActivity {
+    action_type: 'CREATE_CHECKLIST_ITEM';
+    metadata: {
+        checklist_name: string;
+        item_text: string;
+    };
+}
+
+export interface UpdateChecklistItemActivity extends BaseActivity {
+    action_type: 'UPDATE_CHECKLIST_ITEM';
+    metadata: {
+        item_text: string;
+        status: 'completed' | 'uncompleted';
+    };
+}
 // Tạo một Union Type từ tất cả các interface trên
 export type Activity =
     | CreateListActivity
@@ -99,6 +134,12 @@ export type Activity =
     | ArchiveAllCardofListActivity
     | RestoreCardActivity
     | DeleteCardActivity
+    | MarkCardActivity
+    | CreateChecklistActivity
+    | DeleteChecklistActivity
+    | CreateChecklistItemActivity
+    | UpdateChecklistItemActivity;
+
 // SỬA LỖI 1: Bỏ đi hàm bị lồng nhau, chỉ giữ lại một
 export function isActivity(obj: unknown): obj is Activity {
     // Dòng if này rất quan trọng, nó kiểm tra để đảm bảo obj là một object
@@ -167,6 +208,24 @@ export function isActivity(obj: unknown): obj is Activity {
 
         case 'DELETE_CARD':
             return typeof activity.metadata.list_name === 'string';
+        case 'MARK_CARD':
+            return typeof activity.metadata.list_name === 'string';
+        case 'CREATE_CHECKLIST':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.checklist_name === 'string';
+
+        case 'DELETE_CHECKLIST':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.checklist_name === 'string';
+
+        case 'CREATE_CHECKLIST_ITEM':
+            return typeof activity.metadata.checklist_name === 'string' &&
+                typeof activity.metadata.item_text === 'string';
+
+        case 'UPDATE_CHECKLIST_ITEM':
+            return typeof activity.metadata.item_text === 'string' &&
+                (activity.metadata.status === 'completed' || activity.metadata.status === 'uncompleted');
+
         default:
             return false; // Không nhận dạng được action_type
     }

@@ -18,8 +18,9 @@ import { MoveAllCardsMenu } from './MoveAllCardsMenu';
 import { archiveList, archiveAllCardsInList } from '../list-actions';
 
 // Định nghĩa lại các types để code được rõ ràng
-interface Card { id: string; title: string; position: number; list_id: string; }
-interface List { id: string; title: string; position: number; cards: Card[]; }
+export interface Card { id: string; title: string; position: number; list_id: string;
+    completed_at: string}
+export interface List { id: string; title: string; position: number; cards: Card[]; }
 
 
 interface KanbanListProps {

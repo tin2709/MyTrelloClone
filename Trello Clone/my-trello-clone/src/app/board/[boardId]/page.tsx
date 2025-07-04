@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback, useMemo, use } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove } from '@dnd-kit/sortable';
+import { BoardSkeleton } from '@/components/BoardSkeleton'; // Import component mới
 
 // Server Actions
 import {
@@ -19,21 +20,23 @@ import {
  import { restoreCard,deleteCard } from './card-actions';
 
 // Types
-interface Card { id: string; title: string; position: number; list_id: string; }
-interface List { id: string; title: string; position: number; cards: Card[]; }
+// interface Card { id: string; title: string; position: number; list_id: string; }
+// interface List { id: string; title: string; position: number; cards: Card[]; }
 interface Workspace { id: string; name: string; }
 interface BoardData { id: string; title: string; workspace: Workspace | null; lists: List[]; }
 import { ArchivedListItem, ArchivedCardItem } from '@/components/ArchivedItemsSidebar';
+import dynamic from 'next/dynamic';
 
 // Components
+import { KanbanList, type List } from './components/KanbanList'; // <-- Import các kiểu từ KanbanList
+
 import { WorkspaceSidebar } from './components/WorkspaceSidebar';
 import { BoardHeader } from './components/BoardHeader';
-import { KanbanList } from './components/KanbanList';
 import { AddListForm } from './components/AddListForm';
-import BoardMenu from '@/components/BoardMenu';
-import ActivityFeed from '@/components/ActivityFeed';
+const BoardMenu = dynamic(() => import('@/components/BoardMenu'));
+const ActivityFeed = dynamic(() => import('@/components/ActivityFeed'));
+const ArchivedItemsSidebar = dynamic(() => import('@/components/ArchivedItemsSidebar'));
 import { ToastNotification } from './components/ToastNotification';
-import ArchivedItemsSidebar from '@/components/ArchivedItemsSidebar';
 import { LuPlus } from 'react-icons/lu';
 
 // Đổi kiểu props của component
@@ -216,8 +219,9 @@ export default function BoardPage({ params }: BoardPageProps) {
             // ... (Phần logic kéo thả thẻ phức tạp không đổi)
         }
     }, [boardData, boardId]);
+    if (loading) return <BoardSkeleton />;
 
-    if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Đang tải bảng...</div>;
+    // if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Đang tải bảng...</div>;
     if (!boardData) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Không tìm thấy bảng.</div>;
 
     const { title, workspace, lists } = boardData;

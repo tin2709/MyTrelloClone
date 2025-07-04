@@ -63,6 +63,7 @@ export type Database = {
                     list_id: string; // uuid
                     board_id: string;
                     archived_at: string | null;
+                    completed_at: string | null;
                 };
                 Insert: {
                     id?: string; // uuid
@@ -73,6 +74,7 @@ export type Database = {
                     list_id: string; // uuid
                     board_id: string;
                     archived_at?: string | null;
+                    completed_at?: string | null;
                 };
                 Update: {
                     id?: string;
@@ -83,6 +85,7 @@ export type Database = {
                     list_id?: string;
                     board_id?: string;
                     archived_at?: string | null;
+                    completed_at?: string | null;
                 };
                 Relationships: [
                     {
@@ -91,6 +94,73 @@ export type Database = {
                         referencedRelation: "Lists";
                         referencedColumns: ["id"];
                     },
+                ];
+            };
+            Checklists: {
+                Row: {
+                    id: string; // uuid
+                    created_at: string; // timestamptz
+                    title: string; // text
+                    card_id: string; // uuid
+                    position: number; // int4
+                };
+                Insert: {
+                    id?: string; // uuid
+                    created_at?: string; // timestamptz
+                    title: string; // text
+                    card_id: string; // uuid
+                    position: number; // int4
+                };
+                Update: {
+                    id?: string;
+                    created_at?: string;
+                    title?: string;
+                    card_id?: string;
+                    position?: number;
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Checklists_card_id_fkey";
+                        columns: ["card_id"];
+                        referencedRelation: "Cards";
+                        referencedColumns: ["id"];
+                    }
+                ];
+            };
+
+            // Bảng Checklist_Items - Các mục con trong một checklist
+            Checklist_items: {
+                Row: {
+                    id: string; // uuid
+                    created_at: string; // timestamptz
+                    text: string; // text
+                    checklist_id: string; // uuid
+                    is_completed: boolean; // boolean
+                    position: number; // int4
+                };
+                Insert: {
+                    id?: string;
+                    created_at?: string;
+                    text: string;
+                    checklist_id: string;
+                    is_completed?: boolean; // Sẽ có giá trị mặc định là 'false' trong DB
+                    position: number;
+                };
+                Update: {
+                    id?: string;
+                    created_at?: string;
+                    text?: string;
+                    checklist_id?: string;
+                    is_completed?: boolean;
+                    position?: number;
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Checklist_items_checklist_id_fkey";
+                        columns: ["checklist_id"];
+                        referencedRelation: "Checklists";
+                        referencedColumns: ["id"];
+                    }
                 ];
             };
 
@@ -349,6 +419,14 @@ export type Database = {
                      board_id: string;
                      action_type: "DELETE_CARD";
                      metadata: { list_name: string };
+                }
+                | {
+                     id: string;
+                     created_at: string;
+                     user_id: string;
+                     board_id: string;
+                     action_type: "MARK_CARD";
+                     metadata: { list_name: string };
                 };
                 Insert: {
                     id?: string;
@@ -437,6 +515,12 @@ export type Database = {
                 | "ARCHIVE_ALL_CARDS"
                 | "RESTORE_CARD"
                 | "DELETE_CARD"
+                | "MARK_CARD"
+                | "CREATE_CHECKLIST"
+                | "DELETE_CHECKLIST"
+                | "CREATE_CHECKLIST_ITEM"
+                | "UPDATE_CHECKLIST_ITEM";
+
         };
         CompositeTypes: {
             [_ in never]: never;
