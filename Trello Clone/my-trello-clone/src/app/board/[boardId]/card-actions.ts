@@ -3,14 +3,20 @@
 // Sử dụng đúng client cho server, đảm bảo bạn đã tạo kiểu cho nó
 import { createClient } from '@/lib/supabase/supabaseServer';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server'; // Thêm import after()
 
-// --- ACTION 1: TẠO THẺ MỚI (Đã sửa lỗi) ---
+// --- INTERFACES ---
 
-interface CreateCardState {
+interface ActionState {
     success?: boolean;
     error?: string;
+}
+
+interface CreateCardState extends ActionState {
     card?: { id: string; title: string; };
 }
+
+// --- ACTION 1: TẠO THẺ MỚI ---
 
 export async function createCard(
     prevState: CreateCardState,
@@ -25,7 +31,7 @@ export async function createCard(
 
     const title = formData.get('title') as string;
     const listId = formData.get('listId') as string;
-    const boardId = formData.get('boardId') as string; // Đã có boardId từ form
+    const boardId = formData.get('boardId') as string;
 
     if (!title || !title.trim()) {
         return { error: "Tiêu đề không được để trống." };
@@ -42,30 +48,40 @@ export async function createCard(
 
         const newPosition = maxPosCard ? maxPosCard.position + 1 : 0;
 
+        // Tác vụ cốt lõi: Tạo thẻ mới
         const { data: newCard, error } = await supabase
             .from('Cards')
             .insert({
                 title: title.trim(),
                 list_id: listId,
                 position: newPosition,
-                board_id: boardId, // SỬA LỖI: Thêm board_id bắt buộc
+                board_id: boardId,
             })
             .select('id, title')
             .single();
 
-        if (error) throw error;
-        const { data: listData } = await supabase.from('Lists').select('title').eq('id', listId).single();
+        if (error || !newCard) throw error || new Error("Không thể tạo thẻ.");
 
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'CREATE_CARD',
-            metadata: {
-                card_name: newCard.title,
-                list_name: listData?.title || ''
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                const { data: listData } = await supabase.from('Lists').select('title').eq('id', listId).single();
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'CREATE_CARD',
+                    metadata: {
+                        card_name: newCard.title,
+                        list_name: listData?.title || ''
+                    }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho createCard:", err);
             }
         });
-        revalidatePath(`/board/${boardId}`);
+
+        // Trả về thành công ngay lập tức
         return { success: true, card: newCard };
 
     } catch (e) {
@@ -76,17 +92,12 @@ export async function createCard(
 }
 
 
-// --- ACTION 2: CẬP NHẬT MÔ TẢ CỦA THẺ (Đã sửa lỗi) ---
-
-interface UpdateCardDescriptionState {
-    success?: boolean;
-    error?: string;
-}
+// --- ACTION 2: CẬP NHẬT MÔ TẢ CỦA THẺ ---
 
 export async function updateCardDescription(
-    prevState: UpdateCardDescriptionState,
+    prevState: ActionState,
     formData: FormData
-): Promise<UpdateCardDescriptionState> {
+): Promise<ActionState> {
     const supabase = await createClient();
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -99,20 +110,23 @@ export async function updateCardDescription(
     const description = formData.get('description') as string;
 
     try {
-        // SỬA LỖI: Cung cấp board_id để khớp với kiểu update
-        // Mặc dù chúng ta không thay đổi nó, nhưng làm vậy để TypeScript không báo lỗi.
-        // Đây là một cách giải quyết cho các kiểu nghiêm ngặt của Supabase.
+        // Tác vụ cốt lõi: Cập nhật mô tả
         const { error } = await supabase
             .from('Cards')
-            .update({
-                description: description,
-                // board_id: boardId, // Cung cấp để làm hài lòng TypeScript (có thể không cần nếu ko update)
-            })
+            .update({ description: description })
             .eq('id', cardId);
 
         if (error) throw error;
 
-        revalidatePath(`/board/${boardId}`);
+        // Tác vụ phụ: Revalidate
+        after(() => {
+            try {
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi revalidate sau khi cập nhật mô tả thẻ:", err);
+            }
+        });
+
         return { success: true };
 
     } catch(e) {
@@ -133,6 +147,7 @@ export async function updateCardOrder(
 ) {
     const supabase = await createClient();
 
+    // Tác vụ cốt lõi: Cập nhật vị trí và danh sách
     const { error } = await supabase
         .from('Cards')
         .update({
@@ -143,12 +158,19 @@ export async function updateCardOrder(
 
     if (error) {
         console.error("Lỗi khi cập nhật thứ tự thẻ:", error);
-        // Không trả về lỗi để tránh làm gián đoạn UI, nhưng ghi log lại
     }
 
-    // Luôn revalidate để đảm bảo dữ liệu đồng bộ
-    revalidatePath(`/board/${boardId}`);
+    // Tác vụ phụ: Revalidate
+    after(() => {
+        try {
+            revalidatePath(`/board/${boardId}`);
+        } catch (err) {
+            console.error("[AFTER] Lỗi khi revalidate sau khi cập nhật thứ tự thẻ:", err);
+        }
+    });
 }
+
+// Hàm này là một tác vụ phụ, không cần after() bên trong nó.
 export async function logCardMove(
     boardId: string,
     cardName: string,
@@ -171,23 +193,8 @@ export async function logCardMove(
     });
 }
 
-// =======================================================================
-// --- BẮT ĐẦU PHẦN CODE MỚI ---
-// =======================================================================
+// --- ACTION 4: KHÔI PHỤC THẺ ---
 
-// Interface chung cho kết quả trả về của các action đơn giản
-interface ActionState {
-    success?: boolean;
-    error?: string;
-}
-
-/**
- * Khôi phục một thẻ đã được lưu trữ (soft delete).
- * Cập nhật cột `archived_at` về lại NULL.
- * @param cardId - ID của thẻ cần khôi phục.
- * @param boardId - ID của bảng chứa thẻ để revalidate.
- * @param cardTitle - Tiêu đề của thẻ để ghi log hoạt động.
- */
 export async function restoreCard(
     cardId: string,
     boardId: string,
@@ -205,7 +212,7 @@ export async function restoreCard(
     }
 
     try {
-        // Cập nhật trường archived_at về null để khôi phục thẻ
+        // Tác vụ cốt lõi: Khôi phục thẻ
         const { error } = await supabase
             .from('Cards')
             .update({ archived_at: null })
@@ -213,16 +220,21 @@ export async function restoreCard(
 
         if (error) throw error;
 
-        // Ghi log hoạt động
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'RESTORE_CARD',
-            metadata: { card_name: cardTitle }
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'RESTORE_CARD',
+                    metadata: { card_name: cardTitle }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho restoreCard:", err);
+            }
         });
 
-        // Revalidate lại đường dẫn của bảng để UI được cập nhật
-        revalidatePath(`/board/${boardId}`);
         return { success: true };
 
     } catch (e) {
@@ -232,12 +244,8 @@ export async function restoreCard(
     }
 }
 
-/**
- * Xóa vĩnh viễn một thẻ (hard delete).
- * @param cardId - ID của thẻ cần xóa.
- * @param boardId - ID của bảng chứa thẻ để revalidate.
- * @param cardTitle - Tiêu đề của thẻ để ghi log hoạt động.
- */
+// --- ACTION 5: XÓA VĨNH VIỄN THẺ ---
+
 export async function deleteCard(
     cardId: string,
     boardId: string,
@@ -255,7 +263,7 @@ export async function deleteCard(
     }
 
     try {
-        // Xóa vĩnh viễn thẻ khỏi cơ sở dữ liệu
+        // Tác vụ cốt lõi: Xóa thẻ
         const { error } = await supabase
             .from('Cards')
             .delete()
@@ -263,21 +271,83 @@ export async function deleteCard(
 
         if (error) throw error;
 
-        // Ghi log hoạt động
-        await supabase.from('Activities').insert({
-            user_id: user.id,
-            board_id: boardId,
-            action_type: 'DELETE_CARD',
-            metadata: { card_name: cardTitle }
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'DELETE_CARD',
+                    metadata: { card_name: cardTitle }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho deleteCard:", err);
+            }
         });
 
-        // Revalidate lại đường dẫn của bảng để UI được cập nhật
-        revalidatePath(`/board/${boardId}`);
         return { success: true };
 
     } catch (e) {
         const error = e as Error;
         console.error("Lỗi khi xóa thẻ:", error.message);
         return { error: `Không thể xóa thẻ: ${error.message}` };
+    }
+}
+
+// --- ACTION 6: ĐÁNH DẤU HOÀN THÀNH/CHƯA HOÀN THÀNH ---
+
+export async function markCard(
+    cardId: string,
+    boardId: string,
+    cardTitle: string,
+    currentCompletedAt: string | null
+): Promise<ActionState> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        return { error: "Bạn phải đăng nhập." };
+    }
+
+    if (!cardId || !boardId || !cardTitle) {
+        return { error: "Thiếu thông tin cần thiết." };
+    }
+
+    try {
+        const newCompletedAt = currentCompletedAt ? null : new Date().toISOString();
+
+        // Tác vụ cốt lõi: Cập nhật thẻ
+        const { error } = await supabase
+            .from('Cards')
+            .update({ completed_at: newCompletedAt })
+            .eq('id', cardId);
+
+        if (error) throw error;
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                const completionStatus = newCompletedAt ? 'completed' : 'uncompleted';
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'MARK_CARD',
+                    metadata: {
+                        card_name: cardTitle,
+                        marked_as: completionStatus
+                    }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho markCard:", err);
+            }
+        });
+
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi đánh dấu thẻ:", error.message);
+        return { error: `Không thể cập nhật trạng thái thẻ: ${error.message}` };
     }
 }
