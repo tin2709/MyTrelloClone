@@ -351,3 +351,61 @@ export async function markCard(
         return { error: `Không thể cập nhật trạng thái thẻ: ${error.message}` };
     }
 }
+export async function updateCardDates(
+    prevState: ActionState,
+    formData: FormData
+): Promise<ActionState> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        return { error: "Bạn phải đăng nhập." };
+    }
+
+    const cardId = formData.get('cardId') as string;
+    const boardId = formData.get('boardId') as string;
+    const cardTitle = formData.get('cardTitle') as string;
+    const startedAt = formData.get('started_at') as string | null;
+    const duedAt = formData.get('dued_at') as string | null;
+
+    if (!cardId || !boardId || !cardTitle) {
+        return { error: "Thiếu thông tin cần thiết để cập nhật ngày." };
+    }
+
+    try {
+        // Tác vụ cốt lõi: Cập nhật ngày bắt đầu và ngày kết thúc
+        // Nếu giá trị là một chuỗi rỗng, nó sẽ được chuyển thành null để xóa ngày trong DB
+        const { error } = await supabase
+            .from('Cards')
+            .update({
+                started_at: startedAt || null,
+                dued_at: duedAt || null,
+            })
+            .eq('id', cardId);
+
+        if (error) throw error;
+
+        // Tác vụ phụ: Ghi log và revalidate
+        after(async () => {
+            try {
+                await supabase.from('Activities').insert({
+                    user_id: user.id,
+                    board_id: boardId,
+                    action_type: 'UPDATE_CARD_DATES',
+                    metadata: {
+                        card_name: cardTitle
+                    }
+                });
+                revalidatePath(`/board/${boardId}`);
+            } catch (err) {
+                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho updateCardDates:", err);
+            }
+        });
+
+        return { success: true };
+
+    } catch (e) {
+        const error = e as Error;
+        console.error("Lỗi khi cập nhật ngày của thẻ:", error.message);
+        return { error: "Không thể cập nhật ngày. Vui lòng thử lại." };
+    }
+}

@@ -1,11 +1,10 @@
 'use client';
 
-// Thêm `use` vào import
 import React, { useState, useEffect, useCallback, useMemo, use } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove } from '@dnd-kit/sortable';
-import { BoardSkeleton } from '@/components/BoardSkeleton'; // Import component mới
+import { BoardSkeleton } from '@/components/BoardSkeleton';
 
 // Server Actions
 import {
@@ -15,20 +14,15 @@ import {
     getArchivedListsByBoard,
     getArchivedCardsByBoard
 } from './list-actions';
-// Xóa import cho restoreCard và deleteCard vì chưa dùng đến
-// import { logCardMove } from './card-actions';
- import { restoreCard,deleteCard } from './card-actions';
+import { restoreCard, deleteCard } from './card-actions';
 
 // Types
-// interface Card { id: string; title: string; position: number; list_id: string; }
-// interface List { id: string; title: string; position: number; cards: Card[]; }
-interface Workspace { id: string; name: string; }
-interface BoardData { id: string; title: string; workspace: Workspace | null; lists: List[]; }
 import { ArchivedListItem, ArchivedCardItem } from '@/components/ArchivedItemsSidebar';
 import dynamic from 'next/dynamic';
+import { KanbanList, type List, type Card } from './components/KanbanList';
 
 // Components
-import { KanbanList, type List } from './components/KanbanList'; // <-- Import các kiểu từ KanbanList
+// SỬA LỖI 1: Import kiểu List chi tiết từ KanbanList.tsx
 
 import { WorkspaceSidebar } from './components/WorkspaceSidebar';
 import { BoardHeader } from './components/BoardHeader';
@@ -39,13 +33,15 @@ const ArchivedItemsSidebar = dynamic(() => import('@/components/ArchivedItemsSid
 import { ToastNotification } from './components/ToastNotification';
 import { LuPlus } from 'react-icons/lu';
 
-// Đổi kiểu props của component
+// SỬA LỖI 1: Bỏ các kiểu cục bộ và dùng kiểu đã import
+interface Workspace { id: string; name: string; }
+interface BoardData { id: string; title: string; workspace: Workspace | null; lists: List[]; }
+
 interface BoardPageProps {
     params: Promise<{ boardId: string }>;
 }
 
 export default function BoardPage({ params }: BoardPageProps) {
-    // Dùng `use(params)` để lấy `boardId`
     const { boardId } = use(params);
 
     const [boardData, setBoardData] = useState<BoardData | null>(null);
@@ -65,27 +61,55 @@ export default function BoardPage({ params }: BoardPageProps) {
     const supabase = createClient();
 
     const fetchBoardData = useCallback(async () => {
-        // ... (Logic không đổi)
         const query = supabase
             .from('Boards')
-            .select(`id, title, workspace:Workspaces(id, name), lists:Lists!inner(id, title, position, cards:Cards(id, title, position, list_id))`)
+            .select(`
+            id,
+            title,
+            workspace:Workspaces(id, name),
+            lists:Lists!inner(
+                id, title, position,
+                cards:Cards(
+                    id, title, position, list_id,
+                    description, completed_at,
+                    Attachments(count),
+                    Checklists(
+                        id,
+                        checklist_items:Checklist_items(id, is_completed)
+                    )
+                )
+            )
+        `)
             .eq('id', boardId)
             .is('lists.archived_at', null)
             .is('lists.cards.archived_at', null)
             .single();
+
         const { data, error } = await query;
+
         if (error) {
             console.error("Lỗi khi fetch dữ liệu bảng:", error);
             setBoardData(null);
         } else if (data) {
-            const sortedData = {
-                ...data,
-                lists: data.lists.sort((a, b) => a.position - b.position).map(list => ({ ...list, cards: list.cards.sort((a, b) => a.position - b.position) }))
-            };
-            setBoardData(sortedData as BoardData);
+            const typedLists = (data.lists as List[]).map(list => ({
+                ...list,
+                cards: (list.cards as Card[]).sort((a, b) => a.position - b.position)
+            }));
+
+            typedLists.sort((a, b) => a.position - b.position);
+
+            setBoardData({
+                id: data.id,
+                title: data.title,
+                workspace: data.workspace,
+                lists: typedLists
+            });
         }
+
         setLoading(false);
     }, [boardId, supabase]);
+
+
 
     const fetchArchivedData = useCallback(async () => {
         if (!isArchiveSidebarOpen) return;
@@ -115,7 +139,6 @@ export default function BoardPage({ params }: BoardPageProps) {
     }, [isArchiveSidebarOpen, fetchArchivedData]);
 
     const handleRestoreList = useCallback(async (listId: string) => {
-        // ... (Logic không đổi)
         const listToRestore = archivedLists.find(l => l.id === listId);
         if (!listToRestore) return;
         const formData = new FormData();
@@ -132,7 +155,6 @@ export default function BoardPage({ params }: BoardPageProps) {
     }, [archivedLists, boardId, fetchBoardData, fetchArchivedData]);
 
     const handleDeleteList = useCallback(async (listId: string) => {
-        // ... (Logic không đổi)
         if (!window.confirm("Bạn có chắc chắn muốn xóa vĩnh viễn danh sách này không?")) return;
         const listToDelete = archivedLists.find(l => l.id === listId);
         if (!listToDelete) return;
@@ -149,16 +171,10 @@ export default function BoardPage({ params }: BoardPageProps) {
         }
     }, [archivedLists, boardId, fetchArchivedData]);
 
-
-    // --- YÊU CẦU: Để trống các hàm này ---
     const handleRestoreCard = useCallback(async (cardToRestore: ArchivedCardItem) => {
-        // Gọi server action với đầy đủ thông tin
         const result = await restoreCard(cardToRestore.id, boardId, cardToRestore.title);
-
         if (result.success) {
-            // Hiển thị thông báo thành công với tên thẻ
             setToast({ message: `Đã khôi phục thẻ "${cardToRestore.title}".`, type: 'success' });
-            // Tải lại dữ liệu cho cả bảng và kho lưu trữ
             await Promise.all([fetchBoardData(), fetchArchivedData()]);
         } else {
             setToast({ message: result.error || "Lỗi khi khôi phục thẻ.", type: 'error' });
@@ -166,22 +182,18 @@ export default function BoardPage({ params }: BoardPageProps) {
     }, [boardId, fetchBoardData, fetchArchivedData]);
 
     const handleDeleteCard = useCallback(async (cardToDelete: ArchivedCardItem) => {
-        // Hỏi xác nhận trước khi xóa
         if (!window.confirm(`Bạn có chắc muốn xóa vĩnh viễn thẻ "${cardToDelete.title}" không?`)) {
             return;
         }
-
         const result = await deleteCard(cardToDelete.id, boardId, cardToDelete.title);
-
         if (result.success) {
-            // Hiển thị thông báo thành công với tên thẻ
             setToast({ message: `Đã xóa vĩnh viễn thẻ "${cardToDelete.title}".`, type: 'success' });
-            // Chỉ cần tải lại dữ liệu của kho lưu trữ
             await fetchArchivedData();
         } else {
             setToast({ message: result.error || "Lỗi khi xóa thẻ.", type: 'error' });
         }
     }, [boardId, fetchArchivedData]);
+
     const filteredArchivedLists = useMemo(() => {
         return archivedLists.filter(list => list.title.toLowerCase().includes(archiveSearch.toLowerCase()));
     }, [archivedLists, archiveSearch]);
@@ -194,7 +206,6 @@ export default function BoardPage({ params }: BoardPageProps) {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 3 } }));
 
     const handleOnDragEnd = useCallback((event: DragEndEvent) => {
-        // ... (Logic không đổi)
         const { active, over } = event;
         if (!over || !boardData) return;
         const activeId = active.id;
@@ -219,9 +230,8 @@ export default function BoardPage({ params }: BoardPageProps) {
             // ... (Phần logic kéo thả thẻ phức tạp không đổi)
         }
     }, [boardData, boardId]);
-    if (loading) return <BoardSkeleton />;
 
-    // if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Đang tải bảng...</div>;
+    if (loading) return <BoardSkeleton />;
     if (!boardData) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Không tìm thấy bảng.</div>;
 
     const { title, workspace, lists } = boardData;
@@ -246,7 +256,6 @@ export default function BoardPage({ params }: BoardPageProps) {
                     onSearchChange={setArchiveSearch}
                     onRestoreList={handleRestoreList}
                     onDeleteList={handleDeleteList}
-                    // YÊU CẦU: Truyền các hàm trống vào props
                     onRestoreCard={handleRestoreCard}
                     onDeleteCard={handleDeleteCard}
                 />

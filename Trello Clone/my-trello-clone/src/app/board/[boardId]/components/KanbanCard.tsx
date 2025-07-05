@@ -1,35 +1,62 @@
+// @/app/board/[boardId]/components/KanbanCard.tsx
+
 'use client';
 
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import {useState, useMemo, useTransition, useOptimistic} from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { markCard } from '@/app/board/[boardId]/card-actions'; // Đảm bảo import đúng đường dẫn server action
+import { markCard } from '@/app/board/[boardId]/card-actions';
 
-// Import các icon cần thiết
-import { Circle, CheckCircle, Trash2, Pencil } from 'lucide-react';
+import {Pencil, AlignLeft, Paperclip, CheckSquare, CheckCircle, Circle, Trash2} from 'lucide-react';
 
-// === QUAN TRỌNG: Mở rộng kiểu dữ liệu Card ===
-// Component này cần biết trạng thái 'completed_at' để hiển thị đúng.
-// Bạn phải đảm bảo dữ liệu truyền vào từ component cha có chứa trường này.
-interface Card {
+export interface Card {
     id: string;
     title: string;
-    completed_at: string | null; // Thêm trường này
-    // Bạn có thể thêm các trường khác nếu cần hiển thị (comment, attachment...)
+    position: number;
+    list_id: string;
+    description: string | null;
+    completed_at: string | null;
+    Attachments: { count: number }[];
+    Checklists: {
+        id: string;
+        checklist_items: {
+            id: string;
+            is_completed: boolean;
+        }[];
+    }[];
 }
 
-export const KanbanCard = ({ boardId, card }: { boardId: string; card: Card }) => {
-    // State để theo dõi khi người dùng di chuột vào thẻ
-    const [isHovered, setIsHovered] = useState(false);
+export interface List {
+    id: string;
+    title: string;
+    position: number;
+    cards: Card[];
+}
 
-    // useTransition để xử lý trạng thái chờ khi gọi server action
-    // isPending sẽ là true trong khi server đang xử lý, giúp vô hiệu hóa nút, tránh double-click
+const Tooltip = ({ text }: { text: string }) => (
+    <div className="absolute bottom-full mb-2 w-max px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
+        {text}
+    </div>
+);
+
+export const KanbanCard = ({ boardId, card }: { boardId: string; card: Card }) => {
+    const [isHovered, setIsHovered] = useState(false);
     const [isPending, startTransition] = useTransition();
 
+    const [optimisticCard, setOptimisticCard] = useOptimistic(
+        card,
+        (state, newCompletedStatus: boolean) => {
+            return {
+                ...state,
+                completed_at: newCompletedStatus ? new Date().toISOString() : null,
+            };
+        }
+    );
+
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: card.id,
-        data: { type: 'Card', card },
+        id: optimisticCard.id,
+        data: { type: 'Card', card: optimisticCard },
     });
 
     const style = {
@@ -37,21 +64,51 @@ export const KanbanCard = ({ boardId, card }: { boardId: string; card: Card }) =
         transition,
         opacity: isDragging ? 0.5 : 1,
     };
+    const getMarkIcon = () => {
+        if (isCompleted) {
+            return <CheckCircle className="h-5 w-5 text-green-600" />;
+        }
+        return <Circle className="h-5 w-5 text-gray-500" />;
+    };
 
-    // Hàm xử lý khi nhấn vào nút đánh dấu hoàn tất
     const handleMarkCard = (e: React.MouseEvent) => {
-        // Ngăn sự kiện click lan ra ngoài (vào Link hoặc vào dnd-kit listener)
         e.preventDefault();
         e.stopPropagation();
 
         startTransition(() => {
-            // Gọi server action và truyền các tham số cần thiết
+            // Tính toán trạng thái ngược lại và cập nhật giao diện lạc quan
+            const isTogglingToComplete = !optimisticCard.completed_at;
+            setOptimisticCard(isTogglingToComplete);
+
+            // Gọi server action với dữ liệu gốc ban đầu
             markCard(card.id, boardId, card.title, card.completed_at);
         });
     };
 
-    // Xác định xem thẻ đã hoàn thành hay chưa
-    const isCompleted = !!card.completed_at;
+    const isCompleted = !!optimisticCard.completed_at;
+
+    const cardStats = useMemo(() => {
+        const hasDescription = !!optimisticCard.description;
+        const attachmentCount = optimisticCard.Attachments?.[0]?.count ?? 0;
+
+        let totalChecklistItems = 0;
+        let completedChecklistItems = 0;
+        if (optimisticCard.Checklists) {
+            for (const checklist of optimisticCard.Checklists) {
+                totalChecklistItems += checklist.checklist_items.length;
+                completedChecklistItems += checklist.checklist_items.filter(item => item.is_completed).length;
+            }
+        }
+        const allChecklistItemsCompleted = totalChecklistItems > 0 && totalChecklistItems === completedChecklistItems;
+
+        return {
+            hasDescription,
+            attachmentCount,
+            totalChecklistItems,
+            completedChecklistItems,
+            allChecklistItemsCompleted
+        };
+    }, [optimisticCard]);
 
     return (
         <div
@@ -61,11 +118,9 @@ export const KanbanCard = ({ boardId, card }: { boardId: string; card: Card }) =
             {...listeners}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            // Thêm 'relative' để định vị các icon con bên trong
-            className="relative bg-white rounded-md shadow-sm mb-2 cursor-grab active:cursor-grabbing"
+            className="relative bg-white rounded-lg shadow-sm mb-2 cursor-grab active:cursor-grabbing"
         >
-            {/* --- Phần Checkbox đánh dấu --- */}
-            {/* Hiển thị khi hover hoặc khi thẻ đã được hoàn tất */}
+            {/* Logic hiển thị nút bấm đã xử lý cả 2 trường hợp */}
             {(isHovered || isCompleted) && (
                 <div className="absolute top-1/2 -translate-y-1/2 left-2.5 z-10">
                     <button
@@ -74,35 +129,64 @@ export const KanbanCard = ({ boardId, card }: { boardId: string; card: Card }) =
                         title={isCompleted ? "Đánh dấu chưa hoàn tất" : "Đánh dấu hoàn tất"}
                         className="p-0.5 rounded-full hover:bg-gray-200 transition-colors disabled:opacity-50"
                     >
-                        {isCompleted ? (
-                            // Icon khi đã hoàn tất (hình 3)
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                            // Icon khi chưa hoàn tất (hình 2)
-                            <Circle className="h-5 w-5 text-gray-500" />
-                        )}
+                        {getMarkIcon()}
                     </button>
                 </div>
             )}
 
-            {/* --- Phần nội dung thẻ --- */}
+            {isCompleted && (
+                <div
+                    className="absolute -top-1 -left-1 h-8 w-8 bg-contain bg-center bg-no-repeat z-10"
+                    style={{backgroundImage: "url('/check-sticker.png')"}}
+                    title={`Hoàn thành vào ${new Date(optimisticCard.completed_at!).toLocaleDateString('vi-VN')}`}
+                ></div>
+            )}
+
             <Link
-                href={`/board/${boardId}/card/${card.id}`}
+                href={`/board/${boardId}/card/${optimisticCard.id}`}
                 scroll={false}
-                className="block p-2.5"
+                className="block p-3"
                 style={{
-                    // Thêm padding-left để không bị chữ đè lên checkbox
-                    paddingLeft: (isHovered || isCompleted) ? '2.5rem' : '0.625rem',
-                    transition: 'padding-left 150ms ease-in-out' // Hiệu ứng mượt mà
+                    paddingLeft: (isHovered || isCompleted || optimisticCard.completed_at !== card.completed_at)
+                        ? '2.5rem'
+                        : '0.625rem',
+                    transition: 'padding-left 150ms ease-in-out'
                 }}
             >
-                <p className={`text-sm text-gray-800 ${isCompleted ? 'line-through text-gray-500' : ''}`}>
-                    {card.title}
-                </p>
-                {/* Bạn có thể thêm các icon khác như comment, attachment ở đây */}
-            </Link>
 
-            {/* --- Các nút hành động bên phải (hiển thị khi hoàn tất) --- */}
+            <p className={`text-sm text-gray-800 ${isCompleted ? 'line-through text-gray-500' : ''}`}>
+                    {optimisticCard.title}
+                </p>
+
+                {(cardStats.hasDescription || cardStats.attachmentCount > 0 || cardStats.totalChecklistItems > 0) && (
+                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2 text-gray-600">
+                        {cardStats.hasDescription && (
+                            <div className="relative group flex items-center">
+                                <AlignLeft size={16} />
+                                <Tooltip text="Thẻ đã có miêu tả." />
+                            </div>
+                        )}
+                        {cardStats.attachmentCount > 0 && (
+                            <div className="relative group flex items-center gap-1">
+                                <Paperclip size={16} />
+                                <span className="text-xs font-medium">{cardStats.attachmentCount}</span>
+                                <Tooltip text="Các tập tin đính kèm" />
+                            </div>
+                        )}
+                        {cardStats.totalChecklistItems > 0 && (
+                            <div className={`relative group flex items-center gap-1 px-1.5 py-0.5 rounded ${
+                                cardStats.allChecklistItemsCompleted ? 'bg-green-600 text-white' : 'bg-gray-200'
+                            }`}>
+                                <CheckSquare size={16} />
+                                <span className="text-xs font-medium">
+                                    {cardStats.completedChecklistItems}/{cardStats.totalChecklistItems}
+                                </span>
+                                <Tooltip text="Mục trong danh sách công việc" />
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Link>
             {isCompleted && (
                 <div className="absolute top-1/2 -translate-y-1/2 right-2.5 z-10 flex items-center space-x-1">
                     <button className="p-1 text-gray-600 hover:text-gray-900" title="Lưu trữ thẻ">

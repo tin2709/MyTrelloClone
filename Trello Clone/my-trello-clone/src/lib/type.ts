@@ -64,6 +64,8 @@ export type Database = {
                     board_id: string;
                     archived_at: string | null;
                     completed_at: string | null;
+                    started_at: string | null; // timestamptz
+                    dued_at: string | null; // timestamptz
                 };
                 Insert: {
                     id?: string; // uuid
@@ -75,6 +77,8 @@ export type Database = {
                     board_id: string;
                     archived_at?: string | null;
                     completed_at?: string | null;
+                    started_at?: string | null; // timestamptz
+                    dued_at?: string | null; // timestamptz
                 };
                 Update: {
                     id?: string;
@@ -86,6 +90,8 @@ export type Database = {
                     board_id?: string;
                     archived_at?: string | null;
                     completed_at?: string | null;
+                    started_at?: string | null; // timestamptz
+                    dued_at?: string | null; // timestamptz
                 };
                 Relationships: [
                     {
@@ -301,6 +307,119 @@ export type Database = {
                     },
                 ];
             };
+            Labels: {
+                Row: {
+                    id: string; // uuid
+                    created_at: string; // timestamptz
+                    name: string | null; // text
+                    color: string; // varchar
+                    updated_at: string | null; // timestamptz
+                    board_id: string; // uuid
+                };
+                Insert: {
+                    id?: string; // uuid
+                    created_at?: string; // timestamptz
+                    name?: string | null; // text
+                    color: string; // varchar
+                    updated_at?: string | null; // timestamptz
+                    board_id: string; // uuid
+                };
+                Update: {
+                    id?: string;
+                    created_at?: string;
+                    name?: string | null;
+                    color?: string;
+                    updated_at?: string | null;
+                    board_id?: string;
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Labels_board_id_fkey";
+                        columns: ["board_id"];
+                        referencedRelation: "Boards";
+                        referencedColumns: ["id"];
+                    },
+                ];
+            };
+
+            // Bảng Card_labels - Bảng trung gian (many-to-many) giữa Cards và Labels
+            Card_labels: {
+                Row: {
+                    card_id: string; // uuid
+                    label_id: string; // uuid
+                };
+                Insert: {
+                    card_id: string; // uuid
+                    label_id: string; // uuid
+                };
+                Update: {
+                    card_id?: string; // uuid
+                    label_id?: string; // uuid
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Card_labels_card_id_fkey";
+                        columns: ["card_id"];
+                        referencedRelation: "Cards";
+                        referencedColumns: ["id"];
+                    },
+                    {
+                        foreignKeyName: "Card_labels_label_id_fkey";
+                        columns: ["label_id"];
+                        referencedRelation: "Labels";
+                        referencedColumns: ["id"];
+                    },
+                ];
+            };
+            // Thêm định nghĩa cho bảng mới
+            Attachments: {
+                Row: {
+                    id: string; // uuid
+                    card_id: string; // uuid
+                    board_id: string; // uuid
+                    user_id: string; // uuid
+                    attachment_type: Database["public"]["Enums"]["attachment_type_enum"];
+                    file_path: string; // text (đường dẫn storage hoặc URL ngoài)
+                    display_name: string; // text (tên hiển thị)
+                    created_at: string; // timestamptz
+                };
+                Insert: {
+                    id?: string; // uuid
+                    card_id: string; // uuid
+                    board_id: string; // uuid
+                    user_id: string; // uuid
+                    attachment_type: Database["public"]["Enums"]["attachment_type_enum"];
+                    file_path: string;
+                    display_name: string;
+                    created_at?: string; // timestamptz
+                };
+                Update: {
+                    id?: string;
+                    // Thông thường chỉ cho phép cập nhật tên hiển thị
+                    display_name?: string;
+                    file_path?: string;
+                };
+                Relationships: [
+                    {
+                        foreignKeyName: "Attachments_card_id_fkey";
+                        columns: ["card_id"];
+                        referencedRelation: "Cards";
+                        referencedColumns: ["id"];
+                    },
+                    {
+                        foreignKeyName: "Attachments_board_id_fkey";
+                        columns: ["board_id"];
+                        referencedRelation: "Boards";
+                        referencedColumns: ["id"];
+                    },
+                    {
+                        foreignKeyName: "Attachments_user_id_fkey";
+                        columns: ["user_id"];
+                        referencedRelation: "users";
+                        referencedColumns: ["id"];
+                    }
+                ];
+            };
             // Bảng Activities - Lịch sử hoạt động
             Activities: {
                 // THAY THẾ TOÀN BỘ KHỐI NÀY
@@ -495,12 +614,20 @@ export type Database = {
                 };
                 Returns: undefined; // Hàm trả về void, nên TypeScript sẽ hiểu là undefined
             }
+            // SỬA LỖI:
+            create_default_labels_for_new_board: {
+                // Function này là một trigger function, không có đối số truyền vào trực tiếp từ client.
+                // Nó hoạt động trên bản ghi mới được chèn (NEW).
+                Args: Record<string, never>; // <--- THAY ĐỔI Ở ĐÂY
+                Returns: unknown; // Trigger function thường trả về `trigger` hoặc `unknown`
+            };
 
         };
 
 
         Enums: {
             workspace_role: "admin" | "member";
+            attachment_type_enum: "upload" | "link";
             activity_type:
                 | "CREATE_LIST"
                 | "COPY_LIST"
@@ -519,7 +646,16 @@ export type Database = {
                 | "CREATE_CHECKLIST"
                 | "DELETE_CHECKLIST"
                 | "CREATE_CHECKLIST_ITEM"
-                | "UPDATE_CHECKLIST_ITEM";
+                | "UPDATE_CHECKLIST_ITEM"
+                | "ADD_LABEL_TO_CARD"
+                | "REMOVE_LABEL_FROM_CARD"
+                | "UPDATE_LABEL"
+                | "CREATE_LABEL"
+                | "DELETE_LABEL"
+                | "UPDATE_CARD_DATES"
+                | "CREATE_ATTACHMENT"
+                | "UPDATE_ATTACHMENT"
+                | "DELETE_ATTACHMENT"
 
         };
         CompositeTypes: {
