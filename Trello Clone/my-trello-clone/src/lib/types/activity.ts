@@ -119,6 +119,70 @@ export interface UpdateChecklistItemActivity extends BaseActivity {
         status: 'completed' | 'uncompleted';
     };
 }
+export interface AddLabelToCardActivity extends BaseActivity {
+    action_type: 'ADD_LABEL_TO_CARD';
+    metadata: {
+        card_name: string;
+        label_name: string;
+        label_color: string; // Thêm màu để có thể hiển thị trong log
+    };
+}
+
+export interface RemoveLabelFromCardActivity extends BaseActivity {
+    action_type: 'REMOVE_LABEL_FROM_CARD';
+    metadata: {
+        card_name: string;
+        label_name: string;
+    };
+}
+
+export interface UpdateLabelActivity extends BaseActivity {
+    action_type: 'UPDATE_LABEL';
+    metadata: {
+        // Nếu chỉ đổi màu, old_label_name sẽ không có
+        // Nếu đổi tên, cả hai đều có
+        new_label_name: string;
+        old_label_name?: string;
+    };
+}
+
+export interface CreateLabelActivity extends BaseActivity {
+    action_type: 'CREATE_LABEL';
+    metadata: {
+        label_name: string;
+        label_color: string;
+    };
+}
+
+export interface DeleteLabelActivity extends BaseActivity {
+    action_type: 'DELETE_LABEL';
+    metadata: {
+        label_name: string;
+    };
+}
+export interface CreateAttachmentActivity extends BaseActivity {
+    action_type: 'CREATE_ATTACHMENT';
+    metadata: {
+        card_name: string;
+        attachment_name: string; // Tên hiển thị của file đính kèm
+    };
+}
+
+export interface UpdateAttachmentActivity extends BaseActivity {
+    action_type: 'UPDATE_ATTACHMENT';
+    metadata: {
+        old_attachment_name: string;
+        new_attachment_name: string;
+    };
+}
+
+export interface DeleteAttachmentActivity extends BaseActivity {
+    action_type: 'DELETE_ATTACHMENT';
+    metadata: {
+        card_name: string;
+        attachment_name: string;
+    };
+}
 // Tạo một Union Type từ tất cả các interface trên
 export type Activity =
     | CreateListActivity
@@ -138,7 +202,15 @@ export type Activity =
     | CreateChecklistActivity
     | DeleteChecklistActivity
     | CreateChecklistItemActivity
-    | UpdateChecklistItemActivity;
+    | UpdateChecklistItemActivity
+    | AddLabelToCardActivity
+    | RemoveLabelFromCardActivity
+    | UpdateLabelActivity
+    | CreateLabelActivity
+    | DeleteLabelActivity
+    | CreateAttachmentActivity
+    | UpdateAttachmentActivity
+    | DeleteAttachmentActivity;
 
 // SỬA LỖI 1: Bỏ đi hàm bị lồng nhau, chỉ giữ lại một
 export function isActivity(obj: unknown): obj is Activity {
@@ -225,7 +297,36 @@ export function isActivity(obj: unknown): obj is Activity {
         case 'UPDATE_CHECKLIST_ITEM':
             return typeof activity.metadata.item_text === 'string' &&
                 (activity.metadata.status === 'completed' || activity.metadata.status === 'uncompleted');
+        case 'ADD_LABEL_TO_CARD':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.label_name === 'string' &&
+                typeof activity.metadata.label_color === 'string';
 
+        case 'REMOVE_LABEL_FROM_CARD':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.label_name === 'string';
+
+        case 'UPDATE_LABEL':
+            // old_label_name là tùy chọn, nên ta chỉ cần kiểm tra new_label_name
+            return typeof activity.metadata.new_label_name === 'string';
+
+        case 'CREATE_LABEL':
+            return typeof activity.metadata.label_name === 'string' &&
+                typeof activity.metadata.label_color === 'string';
+
+        case 'DELETE_LABEL':
+            return typeof activity.metadata.label_name === 'string';
+        case 'CREATE_ATTACHMENT':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.attachment_name === 'string';
+
+        case 'UPDATE_ATTACHMENT':
+            return typeof activity.metadata.old_attachment_name === 'string' &&
+                typeof activity.metadata.new_attachment_name === 'string';
+
+        case 'DELETE_ATTACHMENT':
+            return typeof activity.metadata.card_name === 'string' &&
+                typeof activity.metadata.attachment_name === 'string';
         default:
             return false; // Không nhận dạng được action_type
     }
