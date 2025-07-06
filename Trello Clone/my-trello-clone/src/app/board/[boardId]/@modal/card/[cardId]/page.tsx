@@ -8,311 +8,118 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 // Server Actions
-import {
-    updateCardDescription,
-    updateCardDates,
-    markCard
-} from '../../../card-actions';
-import {
-    createChecklist,
-    deleteChecklist
-} from '../../../checklist-actions';
-import {
-    createChecklistItem,
-    deleteChecklistItem,
-    updateChecklistItemStatus
-} from '../../../checklist-item-actions';
-import { createAttachment,updateAttachment,
-    deleteAttachment  } from '../../../attachment-actions';
+import { updateCardDescription, markCard } from '../../../card-actions';
+import { deleteChecklist } from '../../../checklist-actions';
+import { createChecklistItem, deleteChecklistItem, updateChecklistItemStatus } from '../../../checklist-item-actions';
+import { deleteAttachment } from '../../../attachment-actions';
 
 // Third-party Libraries & Styles
-import { DayPicker, DateRange } from 'react-day-picker';
-import { vi } from 'date-fns/locale';
-import 'react-day-picker/dist/style.css';
 import DOMPurify from 'dompurify';
+import 'react-day-picker/dist/style.css'; // Vẫn giữ lại vì DatesDisplay hoặc các component khác có thể cần
 
 // Icons
 import {
     LuX, LuCreditCard, LuAlignLeft, LuListOrdered, LuUser, LuTag,
-    LuClock, LuPaperclip, LuCheck, LuTrash2, LuPencil, LuLink2
+    LuClock, LuPaperclip, LuCheck, LuTrash2, LuLink2,
+    LuFile, LuImage, LuFilm, LuFileText
 } from 'react-icons/lu';
 
-// Local Components (nếu có)
+// Local Components
 import { DescriptionEditor } from '@/components/DescriptionEditor';
+import { LabelsPopup } from '../components/labels-popup';
 
-// --- TYPE DEFINITIONS ---
-interface ChecklistItem {
-    id: string;
-    text: string;
-    is_completed: boolean;
-    position: number;
-    checklist_id: string;
-}
+// =======================================================
+// === CẬP NHẬT: IMPORT CÁC POPUP MỚI TỪ FILE RIÊNG ===
+// =======================================================
+import { DatesPopup } from '../components/dates-popup';
+import { ChecklistFormPopup } from '../components/checklist-form-popup';
+import { AttachmentPopup } from '../components/attachment-popup';
+import { EditAttachmentPopup } from '../components/edit-attachment-popup';
 
-interface Checklist {
-    id: string;
-    title: string;
-    card_id: string;
-    position: number;
-    checklist_items: ChecklistItem[];
-}
 
-interface Label {
-    id: string;
-    name: string | null;
-    color: string;
-}
+// --- TYPE DEFINITIONS (Không đổi) ---
+interface ChecklistItem { id: string; text: string; is_completed: boolean; position: number; checklist_id: string; }
+interface Checklist { id: string; title: string; card_id: string; position: number; checklist_items: ChecklistItem[]; }
+interface Label { id: string; name: string | null; color: string; board_id: string; }
+interface CardDetails { id: string; title: string; description: string | null; started_at: string | null; dued_at: string | null; completed_at: string | null; list: { title: string } | null; }
+interface Attachment { id: string; display_name: string; file_path: string; attachment_type: 'link' | 'upload'; created_at: string; }
 
-interface CardDetails {
-    id: string;
-    title: string;
-    description: string | null;
-    started_at: string | null;
-    dued_at: string | null;
-    completed_at: string | null;
-    list: { title: string } | null;
-}
-interface Attachment {
-    id: string;
-    display_name: string;
-    file_path: string; // Đây là URL của link
-    attachment_type: 'link' | 'upload';
-    created_at: string;
-}
+
 // =======================================================================
-// --- HELPER & UI COMPONENTS ---
+// --- HELPER & UI COMPONENTS (Không đổi) ---
 // =======================================================================
+const getFileIcon = (fileName: string) => {
+    const extension = fileName.split('.').pop()?.toLowerCase() || '';
+    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(extension)) {
+        return { Icon: LuImage, text: 'ẢNH', color: 'text-green-600' };
+    }
+    if (['mp4', 'mov', 'avi', 'webm'].includes(extension)) {
+        return { Icon: LuFilm, text: 'VIDEO', color: 'text-purple-600' };
+    }
+    if (['doc', 'docx'].includes(extension)) {
+        return { Icon: LuFileText, text: 'DOCX', color: 'text-blue-600' };
+    }
+    if (['pdf'].includes(extension)) {
+        return { Icon: LuFileText, text: 'PDF', color: 'text-red-600' };
+    }
+    return { Icon: LuFile, text: extension.toUpperCase(), color: 'text-gray-600' };
+};
+
 const AttachmentItem = ({ attachment, onEdit, onDelete }: {
     attachment: Attachment,
     onEdit: (attachment: Attachment) => void,
     onDelete: (attachment: Attachment) => void
 }) => {
-    const isYoutubeLink = attachment.file_path.includes('youtube.com') || attachment.file_path.includes('youtu.be');
-    const [isMenuOpen, setIsMenuOpen] = useState(false);
-    const menuRef = React.useRef<HTMLDivElement>(null);
+    const isLink = attachment.attachment_type === 'link';
+    const isYoutubeLink = isLink && (attachment.file_path.includes('youtube.com') || attachment.file_path.includes('youtu.be'));
+    const fileInfo = !isLink ? getFileIcon(attachment.display_name) : null;
 
-    // Xử lý đóng menu khi click ra ngoài
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-                setIsMenuOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [menuRef]);
-
-    const handleEdit = () => {
-        onEdit(attachment);
-        setIsMenuOpen(false);
-    };
-
-    const handleDelete = () => {
-        onDelete(attachment);
-        setIsMenuOpen(false);
-    };
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const bucketName = 'attachments';
+    const filePublicUrl = `${supabaseUrl}/storage/v1/object/public/${bucketName}/${attachment.file_path}`;
 
     return (
-        <div className="flex items-start gap-3 p-1 rounded-md hover:bg-gray-200/60 group">
-            <a href={attachment.file_path} target="_blank" rel="noopener noreferrer" className="w-28 h-20 bg-gray-300 rounded-sm flex items-center justify-center flex-shrink-0">
+        <div className="flex items-start gap-3 p-1 rounded-md hover:bg-gray-100/80 group w-full">
+            <a
+                href={isLink ? attachment.file_path : filePublicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-28 h-20 bg-gray-200 rounded-md flex items-center justify-center flex-shrink-0 text-center font-bold"
+            >
                 {isYoutubeLink ? (
-                    <img src={`https://i.ytimg.com/vi/${new URL(attachment.file_path).searchParams.get('v')}/default.jpg`} alt="Youtube thumbnail" className="w-full h-full object-cover rounded-sm" />
-                ) : (
+                    <img src={`https://i.ytimg.com/vi/${new URL(attachment.file_path).searchParams.get('v')}/default.jpg`} alt="Youtube thumbnail" className="w-full h-full object-cover rounded-md" />
+                ) : isLink ? (
                     <LuLink2 size={24} className="text-gray-600" />
-                )}
+                ) : fileInfo ? (
+                    <div className={`flex flex-col items-center justify-center ${fileInfo.color}`}>
+                        <fileInfo.Icon size={32} />
+                        <span className="text-xs mt-1">{fileInfo.text}</span>
+                    </div>
+                ) : null}
             </a>
-            <div className="flex-1 pt-1">
+            <div className="flex-1 pt-1 overflow-hidden">
                 <a
-                    href={attachment.file_path}
+                    href={isLink ? attachment.file_path : filePublicUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-bold text-gray-800 hover:underline"
+                    className="text-sm font-bold text-gray-800 hover:underline break-words"
+                    title={attachment.display_name}
                 >
                     {attachment.display_name}
                 </a>
                 <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                    <span>{new Date(attachment.created_at).toLocaleDateString('vi-VN')}</span>
-                    <span>-</span>
-                    <span onClick={handleEdit} className="cursor-pointer hover:underline font-medium">Sửa</span>
-                    <span>-</span>
-                    <span onClick={handleDelete} className="cursor-pointer hover:underline font-medium">Xóa</span>
+                    <span>Đã thêm {new Date(attachment.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
-            </div>
-            <div ref={menuRef} className="relative">
-                <button onClick={() => setIsMenuOpen(prev => !prev)} className="p-1.5 rounded-md text-gray-600 hover:bg-gray-300/80 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <LuPencil size={16} />
-                </button>
-                {isMenuOpen && (
-                    <div className="absolute top-full right-0 mt-1 bg-white rounded-md shadow-lg w-60 z-10 border p-2">
-                        <img src={`https://i.ytimg.com/vi/${new URL(attachment.file_path).searchParams.get('v')}/mqdefault.jpg`} alt="Preview" className="w-full h-auto object-cover rounded-md mb-2" />
-                        <p className="font-bold text-sm mb-2">{attachment.display_name}</p>
-                        <button onClick={handleEdit} className="w-full text-left text-sm px-3 py-1.5 hover:bg-gray-100 rounded-md">Sửa tệp đính kèm</button>
-                        <button onClick={handleDelete} className="w-full text-left text-sm px-3 py-1.5 hover:bg-gray-100 rounded-md text-red-600">Xóa tệp đính kèm</button>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-// Component cho popup đính kèm
-const AttachmentPopup = ({ card, boardId, onClose, onSaveSuccess }: {
-    card: CardDetails;
-    boardId: string;
-    onClose: () => void;
-    onSaveSuccess: () => void;
-}) => {
-    const [state, formAction] = useActionState(createAttachment, { success: false });
-    const [linkUrl, setLinkUrl] = useState('');
-    const [displayName, setDisplayName] = useState('');
-    const [isFetchingTitle, setIsFetchingTitle] = useState(false);
-
-    // Xử lý khi dán link Youtube
-    useEffect(() => {
-        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
-        if (!youtubeRegex.test(linkUrl)) return;
-
-        const fetchTitle = async () => {
-            setIsFetchingTitle(true);
-            try {
-                // Sử dụng oEmbed của Youtube để lấy thông tin video một cách công khai
-                const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(linkUrl)}&format=json`);
-                if (!response.ok) throw new Error('Không tìm thấy video');
-                const data = await response.json();
-                if (data.title) {
-                    setDisplayName(data.title);
-                }
-            } catch (error) {
-                console.warn("Không thể lấy tiêu đề Youtube:", error);
-            } finally {
-                setIsFetchingTitle(false);
-            }
-        };
-
-        const debounce = setTimeout(fetchTitle, 500); // Chờ 500ms sau khi người dùng ngừng gõ
-        return () => clearTimeout(debounce);
-    }, [linkUrl]);
-
-    // Xử lý khi form được gửi thành công
-    useEffect(() => {
-        if (state.success) {
-            onSaveSuccess(); // Gọi callback để tải lại dữ liệu ở component cha
-            onClose();
-        } else if (state.error) {
-            alert(`Lỗi: ${state.error}`);
-        }
-    }, [state, onClose, onSaveSuccess]);
-
-    return (
-        <div className="absolute inset-0 bg-black/10 z-20 flex items-center justify-center">
-            <div className="bg-white rounded-md p-0 shadow-lg w-80">
-                <div className="relative flex items-center justify-center border-b p-2">
-                    <span className="text-sm font-medium text-gray-700">Đính kèm</span>
-                    <button onClick={onClose} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full"><LuX size={16} /></button>
-                </div>
-                <div className="p-4 space-y-4">
-                    <button className="w-full text-center py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium">Chọn tệp</button>
-
-                    <form action={formAction} className="space-y-3">
-                        <input type="hidden" name="cardId" value={card.id} />
-                        <input type="hidden" name="boardId" value={boardId} />
-                        <input type="hidden" name="cardTitle" value={card.title} />
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500">Tìm kiếm hoặc dán liên kết</label>
-                            <input
-                                name="linkUrl"
-                                value={linkUrl}
-                                onChange={(e) => setLinkUrl(e.target.value)}
-                                placeholder="Dán liên kết bất kỳ tại đây..."
-                                className="w-full mt-1 px-3 py-2 border rounded-md"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500 flex items-center gap-2">
-                                <span>Văn bản hiển thị (không bắt buộc)</span>
-                                {isFetchingTitle && <span className="text-blue-500 text-xs">(Đang lấy tiêu đề...)</span>}
-                            </label>
-                            <input
-                                name="displayName"
-                                value={displayName}
-                                onChange={(e) => setDisplayName(e.target.value)}
-                                placeholder="Văn bản cần hiển thị"
-                                className="w-full mt-1 px-3 py-2 border rounded-md"
-                            />
-                        </div>
-
-                        <button type="submit" disabled={!linkUrl} className="w-full py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">
-                            Đính kèm
-                        </button>
-                    </form>
+                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                    <span onClick={() => onEdit(attachment)} className="cursor-pointer hover:underline font-medium">Sửa</span>
+                    <span className="text-gray-300">|</span>
+                    <span onClick={() => onDelete(attachment)} className="cursor-pointer hover:underline font-medium">Xóa</span>
                 </div>
             </div>
         </div>
     );
 };
-const EditAttachmentPopup = ({ attachment, boardId, onClose, onSaveSuccess }: {
-    attachment: Attachment;
-    boardId: string;
-    onClose: () => void;
-    onSaveSuccess: () => void;
-}) => {
-    const [state, formAction] = useActionState(updateAttachment, { success: false });
-    const [linkUrl, setLinkUrl] = useState(attachment.file_path);
-    const [displayName, setDisplayName] = useState(attachment.display_name);
 
-    useEffect(() => {
-        if (state.success) {
-            onSaveSuccess();
-            onClose();
-        } else if (state.error) {
-            alert(`Lỗi: ${state.error}`);
-        }
-    }, [state, onClose, onSaveSuccess]);
-
-    return (
-        <div className="absolute inset-0 bg-black/10 z-30 flex items-center justify-center">
-            <div className="bg-white rounded-md p-0 shadow-lg w-80">
-                <div className="relative flex items-center justify-between border-b p-2">
-                    <button onClick={onClose} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-full"><LuX size={16} /></button>
-                    <span className="text-sm font-medium text-gray-700">Sửa tệp đính kèm</span>
-                    <div className="w-7"></div>
-                </div>
-                <div className="p-4">
-                    <form action={formAction} className="space-y-3">
-                        <input type="hidden" name="attachmentId" value={attachment.id} />
-                        <input type="hidden" name="boardId" value={boardId} />
-                        <input type="hidden" name="oldDisplayName" value={attachment.display_name} />
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500">Tìm kiếm hoặc dán liên kết</label>
-                            <input
-                                name="newLinkUrl"
-                                value={linkUrl}
-                                onChange={(e) => setLinkUrl(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border rounded-md"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500">Văn bản hiển thị</label>
-                            <input
-                                name="newDisplayName"
-                                value={displayName}
-                                onChange={(e) => setDisplayName(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border rounded-md"
-                            />
-                        </div>
-
-                        <button type="submit" className="w-full py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                            Lưu
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    );
-};
 const ActionButton = ({ icon: Icon, text, onClick }: {
     icon: React.ElementType,
     text: string,
@@ -347,44 +154,31 @@ const SectionHeader = ({ icon: Icon, title, children }: {
 
 
 // =======================================================================
-// --- FEATURE-SPECIFIC COMPONENTS ---
+// --- FEATURE-SPECIFIC COMPONENTS (Không đổi) ---
 // =======================================================================
 
-// --- 1. DATES COMPONENTS ---
-
-const DatesDisplay = ({ card, boardId, onToggleDatesPopup }: {
-    card: CardDetails,
-    boardId: string,
-    onToggleDatesPopup: () => void
-}) => {
+const DatesDisplay = ({ card, boardId, onToggleDatesPopup }: { card: CardDetails, boardId: string, onToggleDatesPopup: () => void }) => {
     const [isPending, startTransition] = useTransition();
 
     const getDueDateStatus = () => {
-        if (card.completed_at) {
-            return { text: 'Hoàn thành', color: 'bg-green-600 text-white' };
-        }
-        if (!card.dued_at) {
-            return null;
-        }
+        if (card.completed_at) return { text: 'Hoàn thành', color: 'bg-green-600 text-white' };
+        if (!card.dued_at) return null;
         const dueDate = new Date(card.dued_at);
         const now = new Date();
         const oneDayInMs = 24 * 60 * 60 * 1000;
 
-        if (dueDate < now) {
-            return { text: 'Quá hạn', color: 'bg-red-500 text-white' };
-        }
-        if (dueDate.getTime() - now.getTime() <= oneDayInMs) {
-            return { text: 'Sắp hết hạn', color: 'bg-yellow-500 text-black' };
-        }
+        if (dueDate < now) return { text: 'Quá hạn', color: 'bg-red-500 text-white' };
+        if (dueDate.getTime() - now.getTime() <= oneDayInMs) return { text: 'Sắp hết hạn', color: 'bg-yellow-500 text-black' };
         return null;
     };
 
     const handleToggleComplete = () => {
-        startTransition(async () => {
-            await markCard(card.id, boardId, card.title, card.completed_at);
+        startTransition(() => {
+            // Chỉ cần gọi Server Action, không cần await.
+            // Nó sẽ chạy ở background, và isPending sẽ là true.
+            markCard(card.id, boardId, card.title, card.completed_at);
         });
     };
-
     const formatDate = (isoString: string | null) => {
         if (!isoString) return '';
         const date = new Date(isoString);
@@ -393,320 +187,24 @@ const DatesDisplay = ({ card, boardId, onToggleDatesPopup }: {
     };
 
     const status = getDueDateStatus();
-
-    if (!card.started_at && !card.dued_at) {
-        return null;
-    }
+    if (!card.started_at && !card.dued_at) return null;
 
     return (
         <div>
             <h4 className="text-xs font-bold text-gray-500 mb-2">NGÀY HẾT HẠN</h4>
             <div className="flex items-center gap-2">
-                <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded-sm flex-shrink-0"
-                    checked={!!card.completed_at}
-                    onChange={handleToggleComplete}
-                    disabled={isPending}
-                />
-                <button
-                    onClick={onToggleDatesPopup}
-                    className={`flex items-center gap-2 text-sm font-medium p-2 rounded-sm w-fit
-                    ${card.completed_at ? 'line-through bg-gray-300' : 'bg-gray-200/80 hover:bg-gray-200'}`}
-                >
+                <input type="checkbox" className="w-4 h-4 rounded-sm flex-shrink-0" checked={!!card.completed_at} onChange={handleToggleComplete} disabled={isPending} />
+                <button onClick={onToggleDatesPopup} className={`flex items-center gap-2 text-sm font-medium p-2 rounded-sm w-fit ${card.completed_at ? 'line-through bg-gray-300' : 'bg-gray-200/80 hover:bg-gray-200'}`}>
                     {card.started_at && <span>{formatDate(card.started_at)} -</span>}
                     {card.dued_at && <span>{formatDate(card.dued_at)}</span>}
-                    {status && (
-                        <span className={`px-2 py-0.5 rounded-sm text-xs font-semibold ${status.color}`}>
-                            {status.text}
-                        </span>
-                    )}
+                    {status && (<span className={`px-2 py-0.5 rounded-sm text-xs font-semibold ${status.color}`}>{status.text}</span>)}
                 </button>
             </div>
         </div>
     );
 };
 
-const DatesPopup = ({ card, boardId, onClose, onSaveSuccess}: {
-    card: CardDetails,
-    boardId: string,
-    onClose: () => void,
-    onSaveSuccess: (updates: Partial<Pick<CardDetails, 'started_at' | 'dued_at'>>) => void
-}) => {
-    const [state, formAction] = useActionState(updateCardDates, { success: false });
-
-    const initialRange: DateRange | undefined = {
-        from: card.started_at ? new Date(card.started_at) : undefined,
-        to: card.dued_at ? new Date(card.dued_at) : undefined,
-    };
-
-    const [range, setRange] = useState<DateRange | undefined>(initialRange);
-    const [startDateEnabled, setStartDateEnabled] = useState(!!card.started_at);
-    const [dueDateEnabled, setDueDateEnabled] = useState(!!card.dued_at);
-
-    const toTimeInput = (iso: string | null) => iso ? new Date(iso).toTimeString().slice(0, 5) : '12:00';
-    const [dueTime, setDueTime] = useState(toTimeInput(card.dued_at));
-
-    const formatDateForInput = (date: Date | undefined) => {
-        if (!date) return '';
-        return date.toLocaleDateString('vi-VN'); // Format as DD/MM/YYYY
-    };
-
-    // ... và thay thế bằng useEffect này
-    useEffect(() => {
-        if (state.success) {
-            // Tính toán các giá trị ISO string từ state của popup
-            const newStartedAt = startDateEnabled && range?.from
-                ? range.from.toISOString()
-                : null;
-
-            const effectiveDueDate = range?.to || range?.from;
-            const newDuedAt = dueDateEnabled && effectiveDueDate
-                ? combineDateAndTime(effectiveDueDate, dueTime).toISOString()
-                : null;
-
-            // Gọi callback onSaveSuccess với dữ liệu mới
-            onSaveSuccess({
-                started_at: newStartedAt,
-                dued_at: newDuedAt,
-            });
-
-            onClose(); // Đóng popup
-        } else if (state.error) {
-            alert(`Lỗi: ${state.error}`);
-        }
-    }, [
-        state,
-        onClose,
-        onSaveSuccess,
-        range,
-        startDateEnabled,
-        dueDateEnabled,
-        dueTime
-    ]);
-
-    const combineDateAndTime = (date: Date, time: string): Date => {
-        const [hours, minutes] = time.split(':').map(Number);
-        const newDate = new Date(date);
-        newDate.setHours(hours, minutes, 0, 0);
-        return newDate;
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const formData = new FormData();
-        formData.append('cardId', card.id);
-        formData.append('boardId', boardId);
-        formData.append('cardTitle', card.title);
-
-        const startISO = startDateEnabled && range?.from
-            ? range.from.toISOString()
-            : '';
-
-        // If there's a range, `to` might be undefined, so use `from` as fallback
-        const effectiveDueDate = range?.to || range?.from;
-        const dueISO = dueDateEnabled && effectiveDueDate
-            ? combineDateAndTime(effectiveDueDate, dueTime).toISOString()
-            : '';
-
-        formData.append('started_at', startISO);
-        formData.append('dued_at', dueISO);
-        formAction(formData);
-    };
-
-    const handleRemove = () => {
-        const formData = new FormData();
-        formData.append('cardId', card.id);
-        formData.append('boardId', boardId);
-        formData.append('cardTitle', card.title);
-        formData.append('started_at', '');
-        formData.append('dued_at', '');
-        formAction(formData);
-    };
-
-    return (
-        <div className="absolute inset-0 bg-black/10 z-20 flex items-start justify-end pt-24 pr-4">
-            <div className="bg-white rounded-md p-0 shadow-lg w-[304px]" onClick={e => e.stopPropagation()}>
-                <div className="relative flex items-center justify-center border-b p-2">
-                    <span className="text-sm font-medium text-gray-700">Ngày</span>
-                    <button onClick={onClose} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full"><LuX size={16} /></button>
-                </div>
-
-                <div className="p-3">
-                    <DayPicker
-                        mode="range"
-                        selected={range}
-                        onSelect={setRange}
-                        locale={vi}
-                        showOutsideDays
-                    />
-
-                    <form onSubmit={handleSubmit} className="space-y-3 mt-2">
-                        <div>
-                            <label className="text-xs font-bold text-gray-500">Ngày bắt đầu</label>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={startDateEnabled}
-                                    onChange={(e) => setStartDateEnabled(e.target.checked)}
-                                />
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={formatDateForInput(range?.from)}
-                                    className="w-full px-2 py-1.5 border rounded-md text-sm bg-gray-100"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="text-xs font-bold text-gray-500">Ngày hết hạn</label>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={dueDateEnabled}
-                                    onChange={(e) => setDueDateEnabled(e.target.checked)}
-                                />
-                                <input
-                                    type="text"
-                                    readOnly
-                                    value={formatDateForInput(range?.to || range?.from)}
-                                    className="w-full px-2 py-1.5 border rounded-md text-sm bg-gray-100"
-                                />
-                                <input
-                                    type="time"
-                                    value={dueTime}
-                                    onChange={e => setDueTime(e.target.value)}
-                                    className="px-2 py-1.5 border rounded-md text-sm"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label htmlFor="reminder" className="text-xs font-bold text-gray-500">Thiết lập Nhắc nhở</label>
-                            <select id="reminder" className="w-full mt-1 px-2 py-1.5 border rounded-md text-sm bg-gray-50">
-                                <option>Không có</option>
-                                <option>Khi hết hạn</option>
-                                <option>1 ngày trước</option>
-                                <option>2 ngày trước</option>
-                            </select>
-                        </div>
-
-                        <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded-md font-medium text-sm hover:bg-blue-700">
-                            Lưu
-                        </button>
-                        <button type="button" onClick={handleRemove} className="w-full bg-gray-200 text-gray-800 py-2 rounded-md font-medium text-sm hover:bg-gray-300">
-                            Gỡ bỏ
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-// --- 2. LABELS COMPONENTS ---
-
-const LabelsPopup = ({ selectedLabels, onLabelToggle, onClose }: {
-    selectedLabels: Label[];
-    onLabelToggle: (label: Label) => void;
-    onClose: () => void;
-}) => {
-    const allMockLabels: Label[] = [
-        { id: '1', name: 'Frontend', color: '#61bd4f' },
-        { id: '2', name: 'Backend', color: '#f2d600' },
-        { id: '3', name: 'Bug', color: '#ff9f1a' },
-        { id: '4', name: 'Urgent', color: '#eb5a46' },
-        { id: '5', name: 'UI/UX', color: '#c377e0' },
-        { id: '6', name: 'Documentation', color: '#0079bf' },
-    ];
-
-    const selectedLabelIds = new Set(selectedLabels.map(l => l.id));
-
-    return (
-        <div className="absolute inset-0 bg-black/10 z-20 flex items-start justify-end pt-24">
-            <div className="bg-white rounded-md p-0 shadow-lg w-72" onClick={e => e.stopPropagation()}>
-                <div className="relative flex items-center justify-center border-b p-2">
-                    <span className="text-sm font-medium text-gray-700">Nhãn</span>
-                    <button onClick={onClose} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:bg-gray-100 rounded-full"><LuX size={16} /></button>
-                </div>
-                <div className="p-3 space-y-2">
-                    <input type="text" placeholder="Tìm nhãn..." className="w-full px-2 py-1.5 border rounded-md text-sm" />
-                    <div className="space-y-1">
-                        <h4 className="text-xs font-bold text-gray-500">Nhãn</h4>
-                        {allMockLabels.map(label => (
-                            <div key={label.id} className="flex items-center gap-3">
-                                <input
-                                    type="checkbox"
-                                    className="w-4 h-4 rounded"
-                                    checked={selectedLabelIds.has(label.id)}
-                                    onChange={() => onLabelToggle(label)}
-                                />
-                                <div className="flex-grow flex items-center gap-2 cursor-pointer" onClick={() => onLabelToggle(label)}>
-                                    <div
-                                        className="w-full h-8 rounded-sm flex items-center px-3"
-                                        style={{ backgroundColor: label.color }}
-                                    >
-                                        <span className="text-white font-bold text-sm">{label.name}</span>
-                                    </div>
-                                </div>
-                                <button className="p-1 text-gray-500 hover:text-gray-800"><LuPencil size={14} /></button>
-                            </div>
-                        ))}
-                    </div>
-                    <button className="w-full text-sm py-2 bg-gray-100 hover:bg-gray-200 rounded-md">Tạo nhãn mới</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-// --- 3. CHECKLIST COMPONENTS ---
-
-const ChecklistFormPopup = ({ cardId, boardId, onAdd, onCancel }: {
-    cardId: string, boardId: string, onAdd: (newChecklist: Checklist) => void, onCancel: () => void
-}) => {
-    const [state, formAction, isPending] = useActionState(createChecklist, { success: false });
-    const [title, setTitle] = useState("Việc cần làm");
-
-    useEffect(() => {
-        if (state.success && state.checklist) {
-            onAdd({ ...state.checklist, checklist_items: [] });
-            onCancel();
-        }
-        if (state.error) {
-            alert(`Lỗi: ${state.error}`);
-        }
-    }, [state, onAdd, onCancel]);
-
-    return (
-        <div className="absolute inset-0 bg-black/10 z-20 flex items-center justify-center">
-            <div className="bg-white rounded-md p-4 shadow-lg w-72">
-                <div className="flex items-center justify-between border-b pb-2 mb-3">
-                    <span className="flex-grow text-center text-sm text-gray-500 font-medium">Thêm danh sách công việc</span>
-                    <button onClick={onCancel} className="p-1 text-gray-500 hover:bg-gray-100 rounded-full"><LuX size={16} /></button>
-                </div>
-                <form action={formAction} className="space-y-3">
-                    <input type="hidden" name="cardId" value={cardId} />
-                    <input type="hidden" name="boardId" value={boardId} />
-                    <div className="space-y-1">
-                        <label htmlFor="title" className="text-xs font-bold text-gray-500">Tiêu đề</label>
-                        <input id="title" name="title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2 border rounded-md" />
-                    </div>
-                    <button type="submit" disabled={isPending} className="w-full px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">
-                        {isPending ? 'Đang thêm...' : 'Thêm'}
-                    </button>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-const ChecklistItemForm = ({ checklistId, boardId, onAddItem, onCancel }: {
-    checklistId: string, boardId: string, onAddItem: (newItem: ChecklistItem) => void, onCancel: () => void
-}) => {
+const ChecklistItemForm = ({ checklistId, boardId, onAddItem, onCancel }: { checklistId: string, boardId: string, onAddItem: (newItem: ChecklistItem) => void, onCancel: () => void }) => {
     const formRef = React.useRef<HTMLFormElement>(null);
     const [state, formAction, isPending] = useActionState(createChecklistItem, { success: false });
 
@@ -732,9 +230,7 @@ const ChecklistItemForm = ({ checklistId, boardId, onAddItem, onCancel }: {
     );
 };
 
-const ChecklistItemDisplay = ({ item, onUpdateStatus, onDeleteItem }: {
-    item: ChecklistItem, onUpdateStatus: (itemId: string, isCompleted: boolean) => void, onDeleteItem: (itemId: string) => void
-}) => {
+const ChecklistItemDisplay = ({ item, onUpdateStatus, onDeleteItem }: { item: ChecklistItem, onUpdateStatus: (itemId: string, isCompleted: boolean) => void, onDeleteItem: (itemId: string) => void }) => {
     const [isPending, startTransition] = useTransition();
 
     const handleToggle = () => startTransition(() => onUpdateStatus(item.id, !item.is_completed));
@@ -749,9 +245,7 @@ const ChecklistItemDisplay = ({ item, onUpdateStatus, onDeleteItem }: {
     );
 };
 
-const ChecklistDisplay = ({ checklist, boardId, onUpdate, onDelete }: {
-    checklist: Checklist, boardId: string, onUpdate: (updatedChecklist: Checklist) => void, onDelete: (id: string) => void
-}) => {
+const ChecklistDisplay = ({ checklist, boardId, onUpdate, onDelete }: { checklist: Checklist, boardId: string, onUpdate: (updatedChecklist: Checklist) => void, onDelete: (id: string) => void }) => {
     const [isAddingItem, setIsAddingItem] = useState(false);
     const items = checklist.checklist_items || [];
     const totalItems = items.length;
@@ -812,7 +306,7 @@ const ChecklistDisplay = ({ checklist, boardId, onUpdate, onDelete }: {
 
 
 // =======================================================================
-// --- MAIN MODAL COMPONENT ---
+// --- MAIN MODAL COMPONENT (Không đổi logic, chỉ cập nhật cách render popup) ---
 // =======================================================================
 
 export default function CardModal({ params }: { params: { boardId: string, cardId: string }}) {
@@ -823,110 +317,61 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
     const [loading, setLoading] = useState(true);
     const [isEditingDescription, setIsEditingDescription] = useState(false);
 
-    // State cho các Pop-up
+    // State cho các Pop-up (Không đổi)
     const [isAddingChecklist, setIsAddingChecklist] = useState(false);
     const [isLabelsPopupOpen, setIsLabelsPopupOpen] = useState(false);
     const [isDatesPopupOpen, setIsDatesPopupOpen] = useState(false);
-
+    const [allBoardLabels, setAllBoardLabels] = useState<Label[]>([]);
     const [selectedLabels, setSelectedLabels] = useState<Label[]>([]);
-    const [attachments, setAttachments] = useState<Attachment[]>([]); // Thêm state cho attachments
-    const [isAttachmentPopupOpen, setIsAttachmentPopupOpen] = useState(false); // Thêm state cho popup
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const [isAttachmentPopupOpen, setIsAttachmentPopupOpen] = useState(false);
     const [editingAttachment, setEditingAttachment] = useState<Attachment | null>(null);
 
-    const handleLabelToggle = (labelToToggle: Label) => {
-        setSelectedLabels(prevLabels => {
-            const isSelected = prevLabels.some(label => label.id === labelToToggle.id);
-            if (isSelected) {
-                return prevLabels.filter(label => label.id !== labelToToggle.id);
-            } else {
-                return [...prevLabels, labelToToggle];
-            }
-        });
-    };
-
+    // Toàn bộ các hàm xử lý logic (fetchCardData, handle... ) đều giữ nguyên
     const fetchCardData = useCallback(async () => {
-        const { data: cardData, error: cardError } = await supabase
-            .from('Cards')
-            .select(`id, title, description, started_at, dued_at, completed_at, list:Lists(title)`)
-            .eq('id', params.cardId)
-            .single();
-
-        if (cardError) {
-            console.error("Lỗi khi tải thẻ:", cardError.message);
-            router.back();
-            return;
-        }
+        const { data: cardData, error: cardError } = await supabase.from('Cards').select(`id, title, description, started_at, dued_at, completed_at, list:Lists(title)`).eq('id', params.cardId).single();
+        if (cardError) { console.error("Lỗi khi tải thẻ:", cardError.message); router.back(); return; }
         setCardDetails(cardData as CardDetails);
 
-        const { data: checklistData, error: checklistError } = await supabase
-            .from('Checklists')
-            .select(`*, checklist_items:Checklist_items(*)`)
-            .eq('card_id', params.cardId)
-            .order('position', { ascending: true });
+        const { data: checklistData, error: checklistError } = await supabase.from('Checklists').select(`*, checklist_items:Checklist_items(*)`).eq('card_id', params.cardId).order('position', { ascending: true });
+        if(checklistError) console.error("Lỗi khi tải checklist:", checklistError.message); else setChecklists(checklistData as unknown as Checklist[]);
 
-        if(checklistError) console.error("Lỗi khi tải checklist:", checklistError.message);
-        else setChecklists(checklistData as unknown as Checklist[]);
-        const { data: attachmentsData, error: attachmentsError } = await supabase
-            .from('Attachments')
-            .select('*')
-            .eq('card_id', params.cardId)
-            .order('created_at', { ascending: true });
+        const { data: attachmentsData, error: attachmentsError } = await supabase.from('Attachments').select('*').eq('card_id', params.cardId).order('created_at', { ascending: true });
+        if (attachmentsError) console.error("Lỗi khi tải attachments:", attachmentsError.message); else setAttachments(attachmentsData as Attachment[]);
 
-        if (attachmentsError) {
-            console.error("Lỗi khi tải attachments:", attachmentsError.message);
-        } else {
-            setAttachments(attachmentsData as Attachment[]);
+        const { data: boardLabelsData, error: boardLabelsError } = await supabase.from('Labels').select('*').eq('board_id', params.boardId).order('name', { ascending: true });
+        if (boardLabelsError) console.error("Lỗi khi tải các nhãn của board:", boardLabelsError.message); else setAllBoardLabels(boardLabelsData as Label[]);
+
+        const { data: attachedLabelsData, error: attachedLabelsError } = await supabase.from('Card_labels').select('Labels(*)').eq('card_id', params.cardId);
+        if (attachedLabelsError) console.error("Lỗi khi tải các nhãn đã gắn:", attachedLabelsError.message); else {
+            const extractedLabels = attachedLabelsData.map(item => item.Labels) as Label[];
+            setSelectedLabels(extractedLabels);
         }
-    }, [params.cardId, router, supabase]);
-    const handleAttachmentSaveSuccess = useCallback(() => {
-        // Tải lại toàn bộ dữ liệu của thẻ để cập nhật danh sách đính kèm
-        fetchCardData();
-    }, [fetchCardData]);
-    const handleOpenEditAttachment = (attachment: Attachment) => {
-        setEditingAttachment(attachment);
-    };
+    }, [params.cardId, params.boardId, router, supabase]);
 
-    const handleCloseEditAttachment = () => {
-        setEditingAttachment(null);
-    };
+    const handleAttachmentSaveSuccess = useCallback(() => fetchCardData(), [fetchCardData]);
+    const handleLabelsChange = useCallback((newLabels: Label[]) => setSelectedLabels(newLabels), []);
+    const handleOpenEditAttachment = (attachment: Attachment) => setEditingAttachment(attachment);
+    const handleCloseEditAttachment = () => setEditingAttachment(null);
 
     const handleDeleteAttachment = async (attachmentToDelete: Attachment) => {
-        if (!window.confirm(`Bạn có chắc muốn xóa đính kèm "${attachmentToDelete.display_name}"?`)) {
-            return;
-        }
-
-        // Cập nhật UI ngay lập tức để có trải nghiệm tốt hơn
+        if (!window.confirm(`Bạn có chắc muốn xóa đính kèm "${attachmentToDelete.display_name}"?`)) return;
         setAttachments(prev => prev.filter(att => att.id !== attachmentToDelete.id));
-
         const formData = new FormData();
         formData.append('attachmentId', attachmentToDelete.id);
         formData.append('boardId', params.boardId);
-        formData.append('cardTitle', cardDetails?.title || ''); // Lấy cardTitle từ state
-        formData.append('filePath', attachmentToDelete.file_path); // Cần cho việc xóa file (nếu là upload)
+        formData.append('cardTitle', cardDetails?.title || '');
+        formData.append('filePath', attachmentToDelete.file_path);
         formData.append('displayName', attachmentToDelete.display_name);
-
         const result = await deleteAttachment({ success: false }, formData);
-
-        if (result.error) {
-            alert(`Lỗi: ${result.error}`);
-            // Nếu có lỗi, tải lại dữ liệu từ server để khôi phục lại trạng thái cũ
-            fetchCardData();
-        }
+        if (result.error) { alert(`Lỗi: ${result.error}`); fetchCardData(); }
     };
-    useEffect(() => {
-        setLoading(true);
-        fetchCardData().finally(() => setLoading(false));
-    }, [fetchCardData]);
 
-    // Thêm hàm mới này
+    useEffect(() => { setLoading(true); fetchCardData().finally(() => setLoading(false)); }, [fetchCardData]);
+
     const handleDatesUpdate = useCallback((updates: Partial<Pick<CardDetails, 'started_at' | 'dued_at'>>) => {
-        setCardDetails(prevDetails => {
-            // Kiểm tra nếu state trước đó tồn tại
-            if (!prevDetails) return null;
-            // Trả về state mới bằng cách gộp state cũ với các giá trị ngày tháng mới
-            return { ...prevDetails, ...updates };
-        });
-    }, []); // Không cần dependencies vì setCardDetails là ổn định
+        setCardDetails(prevDetails => prevDetails ? { ...prevDetails, ...updates } : null);
+    }, []);
 
     const handleSaveDescription = useCallback(async (htmlContent: string) => {
         if (!params.cardId || !params.boardId) return;
@@ -935,12 +380,8 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
         formData.append('boardId', params.boardId);
         formData.append('description', htmlContent);
         const result = await updateCardDescription({ success: false }, formData);
-        if (result.success) {
-            setCardDetails(prev => prev ? { ...prev, description: htmlContent } : null);
-            setIsEditingDescription(false);
-        } else {
-            alert(`Lỗi: ${result.error}`);
-        }
+        if (result.success) { setCardDetails(prev => prev ? { ...prev, description: htmlContent } : null); setIsEditingDescription(false); }
+        else { alert(`Lỗi: ${result.error}`); }
     }, [params.cardId, params.boardId]);
 
     const handleAddChecklist = (newChecklist: Checklist) => setChecklists(prev => [...prev, newChecklist]);
@@ -954,10 +395,27 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
         <div onClick={() => router.back()} className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-12 md:pt-16 px-4">
             <div onClick={(e) => e.stopPropagation()} className="bg-gray-100 rounded-lg shadow-xl w-full max-w-3xl relative max-h-[90vh] overflow-y-auto">
 
+                {/* ======================================================== */}
+                {/* === CẬP NHẬT: RENDER CÁC POPUP TỪ COMPONENT ĐÃ IMPORT === */}
+                {/* ======================================================== */}
                 {isAddingChecklist && <ChecklistFormPopup cardId={params.cardId} boardId={params.boardId} onAdd={handleAddChecklist} onCancel={() => setIsAddingChecklist(false)} />}
-                {isLabelsPopupOpen && <LabelsPopup selectedLabels={selectedLabels} onLabelToggle={handleLabelToggle} onClose={() => setIsLabelsPopupOpen(false)} />}
+
+                {isLabelsPopupOpen && (
+                    <LabelsPopup
+                        card={cardDetails}
+                        boardId={params.boardId}
+                        allBoardLabels={allBoardLabels}
+                        initialSelectedLabels={selectedLabels}
+                        onLabelsChange={handleLabelsChange}
+                        onClose={() => setIsLabelsPopupOpen(false)}
+                        onDataRefresh={fetchCardData}
+                    />
+                )}
+
                 {isDatesPopupOpen && <DatesPopup card={cardDetails} boardId={params.boardId} onClose={() => setIsDatesPopupOpen(false)} onSaveSuccess={handleDatesUpdate} />}
+
                 {isAttachmentPopupOpen && <AttachmentPopup card={cardDetails} boardId={params.boardId} onClose={() => setIsAttachmentPopupOpen(false)} onSaveSuccess={handleAttachmentSaveSuccess} />}
+
                 {editingAttachment && (
                     <EditAttachmentPopup
                         attachment={editingAttachment}
@@ -966,7 +424,11 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
                         onSaveSuccess={handleAttachmentSaveSuccess}
                     />
                 )}
+                {/* ======================================================== */}
+
                 <button onClick={() => router.back()} className="absolute top-3 right-3 p-2 text-gray-600 hover:bg-gray-200 rounded-full z-10"><LuX size={20} /></button>
+
+                {/* Toàn bộ phần JSX hiển thị nội dung modal bên dưới được giữ nguyên */}
                 <div className="py-6 px-4 md:py-8 md:px-6">
                     <SectionHeader icon={LuCreditCard} title={cardDetails.title}>
                         <p className="text-sm text-gray-500 mt-1">trong danh sách <span className="underline font-medium">{cardDetails.list?.title}</span></p>
@@ -976,6 +438,18 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
                         <main className="w-full md:w-2/3 space-y-6">
                             <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
                                 <DatesDisplay card={cardDetails} boardId={params.boardId} onToggleDatesPopup={() => setIsDatesPopupOpen(true)} />
+                                {selectedLabels.length > 0 && (
+                                    <div>
+                                        <h4 className="text-xs font-bold text-gray-500 mb-2">NHÃN</h4>
+                                        <div className="flex flex-wrap gap-1">
+                                            {selectedLabels.map(label => (
+                                                <div key={label.id} style={{ backgroundColor: label.color }} className="rounded-sm px-3 py-1 text-white text-sm font-bold h-8 flex items-center">
+                                                    {label.name}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <section>
                                 <SectionHeader icon={LuAlignLeft} title="Mô tả" />
@@ -990,20 +464,19 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
                                 </div>
                             </section>
                             {attachments.length > 0 && (
-                                        <section>
-                                            <SectionHeader icon={LuPaperclip} title="Các tập tin đính kèm" />
-                                            <div className="pl-10 mt-2 space-y-2">
-                                                {/* CẬP NHẬT props cho AttachmentItem */}
-                                                {attachments.map(att => (
-                                                    <AttachmentItem
-                                                        key={att.id}
-                                                        attachment={att}
-                                                        onEdit={handleOpenEditAttachment}
-                                                        onDelete={handleDeleteAttachment}
-                                                    />
-                                                ))}
-                                            </div>
-                                        </section>
+                                <section>
+                                    <SectionHeader icon={LuPaperclip} title="Các tập tin đính kèm" />
+                                    <div className="pl-10 mt-2 space-y-2">
+                                        {attachments.map(att => (
+                                            <AttachmentItem
+                                                key={att.id}
+                                                attachment={att}
+                                                onEdit={handleOpenEditAttachment}
+                                                onDelete={handleDeleteAttachment}
+                                            />
+                                        ))}
+                                    </div>
+                                </section>
                             )}
                             {checklists.map(checklist => (
                                 <ChecklistDisplay key={checklist.id} checklist={checklist} boardId={params.boardId} onUpdate={handleUpdateChecklist} onDelete={handleDeleteChecklist} />
