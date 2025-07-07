@@ -1,7 +1,7 @@
 'use client';
 
 // --- SỬA LỖI 1: Xóa 'use' không được sử dụng ---
-import React, { useState, useEffect, useCallback, useMemo,use } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove } from '@dnd-kit/sortable';
@@ -21,6 +21,9 @@ import {restoreCard, deleteCard, updateCardOrder} from './card-actions';
 import { ArchivedListItem, ArchivedCardItem } from '@/components/ArchivedItemsSidebar';
 import dynamic from 'next/dynamic';
 import type { BoardData, List, Card, Label, Workspace } from './types';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'; // THÊM IMPORT NÀY
+import { useParams } from 'next/navigation';
+import { Tables } from '@/lib/type'; // Giả sử đường dẫn đúng
 
 // Components
 import { KanbanList } from './components/KanbanList';
@@ -32,6 +35,7 @@ const ActivityFeed = dynamic(() => import('@/components/ActivityFeed'));
 const ArchivedItemsSidebar = dynamic(() => import('@/components/ArchivedItemsSidebar'));
 import { ToastNotification } from './components/ToastNotification';
 import { LuPlus } from 'react-icons/lu';
+import { toast as hotToast } from 'react-hot-toast'; // Import react-hot-toast
 
 // Kiểu dữ liệu thô từ Supabase (giữ nguyên)
 interface SupabaseRawCardLabel {
@@ -54,9 +58,9 @@ interface SupabaseRawBoard {
     workspace: Workspace | null;
     lists: SupabaseRawList[];
 }
-export default function BoardPage({ params: paramsPromise }: { params: Promise<{ boardId: string }> }) {
+export default function BoardPage() {
 
-    const params = use(paramsPromise);
+    const params = useParams<{ boardId: string }>();
 
     // --- SỬA LỖI 2: Lấy boardId trực tiếp từ params ---
     const { boardId } = params;
@@ -253,7 +257,125 @@ export default function BoardPage({ params: paramsPromise }: { params: Promise<{
     const filteredArchivedCards = useMemo(() => {
         return archivedCards.filter(card => card.title.toLowerCase().includes(archiveSearch.toLowerCase()));
     }, [archivedCards, archiveSearch]);
+    useEffect(() => {
+        if (!boardId) {
+            console.warn("[Board Realtime] useEffect: boardId is missing, subscription skipped.");
+            return;
+        }
 
+        console.log(`[Board Realtime] Setting up subscription for board: ${boardId}`);
+
+        const handleRealtimeChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: unknown }>) => {
+            // Log payload gốc
+            console.groupCollapsed(`[Board Realtime] Payload Received: ${payload.eventType} on table "${payload.table}"`);
+            console.log("Full Payload:", payload);
+            console.groupEnd();
+
+            const { eventType, table, new: newRecord, old: oldRecord } = payload;
+
+            // --- Xử lý sự kiện cho bảng LISTS ---
+            if (table === 'Lists') {
+                const list = (eventType === 'DELETE' ? oldRecord : newRecord) as Tables<'Lists'>;
+
+                console.groupCollapsed(`[Debug] Processing List Event...`);
+                console.log(`- Checking if list's board_id (${list?.board_id}) matches current board (${boardId})`);
+
+                if (list?.board_id === boardId) {
+                    console.log(`%c- MATCH FOUND! Event will be processed.`, "color: green; font-weight: bold;");
+
+                    hotToast.dismiss(); // Tắt các toast cũ để tránh trùng lặp
+
+                    if (eventType === 'INSERT') {
+                        hotToast.success(`Danh sách "${list.title}" đã được thêm.`);
+                    } else if (eventType === 'UPDATE') {
+                        const oldList = oldRecord as Tables<'Lists'>;
+                        if (oldList && oldList.title !== list.title) {
+                            hotToast(`Danh sách "${oldList.title}" đổi tên thành "${list.title}".`);
+                        } else if (list.archived_at && !oldList.archived_at) {
+                            hotToast.error(`Danh sách "${list.title}" đã được lưu trữ.`);
+                        } else if (!list.archived_at && oldList.archived_at) {
+                            hotToast.success(`Danh sách "${list.title}" đã được khôi phục.`);
+                        }
+                    } else if (eventType === 'DELETE') {
+                        const oldList = oldRecord as Tables<'Lists'>;
+                        hotToast.error(`Danh sách "${oldList.title}" đã được xóa.`);
+                    }
+
+                    // Tải lại dữ liệu để đảm bảo giao diện đồng bộ
+                    fetchBoardData();
+                } else {
+                    console.log(`%c- NO MATCH. Ignoring event from another board.`, "color: orange;");
+                }
+                console.groupEnd();
+            }
+
+            // --- Xử lý sự kiện cho bảng CARDS ---
+            if (table === 'Cards') {
+                const card = (eventType === 'DELETE' ? oldRecord : newRecord) as Tables<'Cards'>;
+
+                console.groupCollapsed(`[Debug] Processing Card Event...`);
+                console.log(`- Checking if card's board_id (${card?.board_id}) matches current board (${boardId})`);
+
+                if (card?.board_id === boardId) {
+                    console.log(`%c- MATCH FOUND! Event will be processed.`, "color: green; font-weight: bold;");
+
+                    hotToast.dismiss();
+
+                    if (eventType === 'INSERT') {
+                        hotToast.success(`Thẻ "${card.title}" đã được tạo.`);
+                    } else if (eventType === 'UPDATE') {
+                        const oldCard = oldRecord as Tables<'Cards'>;
+                        if (card.archived_at && !oldCard.archived_at) {
+                            hotToast.error(`Thẻ "${card.title}" đã được lưu trữ.`);
+                        } else if (!card.archived_at && oldCard.archived_at) {
+                            hotToast.success(`Thẻ "${card.title}" đã được khôi phục.`);
+                        } else if (oldCard.title !== card.title) {
+                            hotToast(`Thẻ "${oldCard.title}" đổi tên thành "${card.title}".`);
+                        }
+                    } else if (eventType === 'DELETE') {
+                        const oldCard = oldRecord as Tables<'Cards'>;
+                        hotToast.error(`Thẻ "${oldCard.title}" đã được xóa.`);
+                    }
+
+                    // Tải lại dữ liệu để đảm bảo giao diện đồng bộ
+                    fetchBoardData();
+                } else {
+                    console.log(`%c- NO MATCH. Ignoring event from another board.`, "color: orange;");
+                }
+                console.groupEnd();
+            }
+        };
+
+        const channel = supabase
+            .channel(`board-changes-${boardId}`)
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'Lists' },
+                handleRealtimeChanges
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'Cards' },
+                handleRealtimeChanges
+            )
+            .subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`%c[Board Realtime] Successfully subscribed to board ${boardId}`, "color: green;");
+                }
+                if (status === 'CHANNEL_ERROR') {
+                    console.error('[Board Realtime] Subscription error:', err);
+                }
+                if (status === 'TIMED_OUT') {
+                    console.warn(`%c[Board Realtime] Subscription timed out for board ${boardId}.`, "color: orange;");
+                }
+            });
+
+        return () => {
+            console.log(`[Board Realtime] Unsubscribing from board ${boardId}`);
+            supabase.removeChannel(channel);
+        };
+
+    }, [boardId, supabase, fetchBoardData])
     const listIds = useMemo(() => boardData?.lists.map(list => list.id) || [], [boardData]);
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 3 } }));
 

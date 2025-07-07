@@ -546,7 +546,78 @@ export type Database = {
                      board_id: string;
                      action_type: "MARK_CARD";
                      metadata: { list_name: string };
-                };
+                }
+                | {
+                    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "CREATE_CHECKLIST";
+    metadata: { checklist_title: string; card_name: string };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "DELETE_CHECKLIST";
+    metadata: { checklist_title: string; card_name: string };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "CREATE_CHECKLIST_ITEM";
+    metadata: { item_text: string; checklist_title: string; card_name: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "UPDATE_CHECKLIST_ITEM";
+    metadata: { item_text: string; card_name: string; is_completed: boolean; };
+}
+
+// -- Các action liên quan đến Label --
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "ADD_LABEL_TO_CARD";
+    metadata: { label_name: string | null; label_color: string; card_name: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "REMOVE_LABEL_FROM_CARD";
+    metadata: { label_name: string | null; label_color: string; card_name: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "UPDATE_LABEL";
+    metadata: { old_label_name: string | null; new_label_name: string | null; old_label_color: string; new_label_color: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "CREATE_LABEL";
+    metadata: { label_name: string | null; label_color: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "DELETE_LABEL";
+    metadata: { label_name: string | null; label_color: string; };
+}
+
+// -- Các action liên quan đến Ngày tháng trên Card --
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "UPDATE_CARD_DATES";
+    metadata: { card_name: string; old_start_date: string | null; new_start_date: string | null; old_due_date: string | null; new_due_date: string | null; };
+}
+
+// -- Các action liên quan đến Attachment --
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "CREATE_ATTACHMENT";
+    metadata: { attachment_name: string; card_name: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "UPDATE_ATTACHMENT";
+    metadata: { old_attachment_name: string; new_attachment_name: string; card_name: string; };
+}
+| {
+    id: string; created_at: string; user_id: string; board_id: string;
+    action_type: "DELETE_ATTACHMENT";
+    metadata: { attachment_name: string; card_name: string; };
+};
                 Insert: {
                     id?: string;
                     created_at?: string;

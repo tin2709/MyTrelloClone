@@ -15,7 +15,7 @@ import { CopyListForm } from './CopyListForm';
 import { MoveListForm } from './MoveListForm';
 import { MoveAllCardsMenu } from './MoveAllCardsMenu';
 import { archiveList, archiveAllCardsInList } from '../list-actions';
-import type { List, Card } from '../types';
+import type { List } from '../types';
 
 
 
