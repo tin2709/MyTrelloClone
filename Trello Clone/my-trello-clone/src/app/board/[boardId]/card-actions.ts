@@ -195,6 +195,8 @@ export async function logCardMove(
 
 // --- ACTION 4: KHÔI PHỤC THẺ ---
 
+// --- ACTION 4: KHÔI PHỤC THẺ (ĐÃ SỬA LỖI SCOPE) ---
+
 export async function restoreCard(
     cardId: string,
     boardId: string,
@@ -211,27 +213,53 @@ export async function restoreCard(
         return { error: "Thiếu thông tin cần thiết." };
     }
 
+    // SỬA LỖI: Khai báo biến ở scope cao hơn để 'after' có thể truy cập
+    let listIdForLogging: string | null = null;
+
     try {
+        // Lấy thông tin list_id của thẻ trước khi cập nhật
+        const { data: cardData, error: cardFetchError } = await supabase
+            .from('Cards')
+            .select('list_id')
+            .eq('id', cardId)
+            .single();
+
+        if (cardFetchError || !cardData) {
+            throw cardFetchError || new Error("Không tìm thấy thẻ để lấy thông tin danh sách.");
+        }
+
+        // Gán giá trị vào biến đã khai báo ở trên
+        listIdForLogging = cardData.list_id;
+
         // Tác vụ cốt lõi: Khôi phục thẻ
-        const { error } = await supabase
+        const { error: updateError } = await supabase
             .from('Cards')
             .update({ archived_at: null })
             .eq('id', cardId);
 
-        if (error) throw error;
+        if (updateError) throw updateError;
 
         // Tác vụ phụ: Ghi log và revalidate
         after(async () => {
-            try {
-                await supabase.from('Activities').insert({
-                    user_id: user.id,
-                    board_id: boardId,
-                    action_type: 'RESTORE_CARD',
-                    metadata: { card_name: cardTitle }
-                });
-                revalidatePath(`/board/${boardId}`);
-            } catch (err) {
-                console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho restoreCard:", err);
+            // Chỉ thực hiện nếu có listId
+            if (listIdForLogging) {
+                try {
+                    // Lấy tên danh sách từ listId đã được truyền vào closure
+                    const { data: listData } = await supabase.from('Lists').select('title').eq('id', listIdForLogging).single();
+
+                    await supabase.from('Activities').insert({
+                        user_id: user.id,
+                        board_id: boardId,
+                        action_type: 'RESTORE_CARD',
+                        metadata: {
+                            card_name: cardTitle,
+                            list_name: listData?.title || 'một danh sách'
+                        }
+                    });
+                    revalidatePath(`/board/${boardId}`);
+                } catch (err) {
+                    console.error("[AFTER] Lỗi khi thực hiện tác vụ nền cho restoreCard:", err);
+                }
             }
         });
 

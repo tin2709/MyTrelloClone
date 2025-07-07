@@ -1,8 +1,9 @@
+// src/app/board/[boardId]/@modal/(.)cards/[cardId]/page.tsx
 'use client';
 
 // React & Next.js Core
-import React, { useState, useEffect, useCallback, useActionState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useCallback, useTransition, useActionState } from 'react';
+import {useParams, useRouter} from 'next/navigation';
 
 // Supabase
 import { createClient } from '@/lib/supabase/client';
@@ -15,27 +16,27 @@ import { deleteAttachment } from '../../../attachment-actions';
 
 // Third-party Libraries & Styles
 import DOMPurify from 'dompurify';
-import 'react-day-picker/dist/style.css'; // Vẫn giữ lại vì DatesDisplay hoặc các component khác có thể cần
+import 'react-day-picker/dist/style.css';
 
 // Icons
 import {
     LuX, LuCreditCard, LuAlignLeft, LuListOrdered, LuUser, LuTag,
     LuClock, LuPaperclip, LuCheck, LuTrash2, LuLink2,
-    LuFile, LuImage, LuFilm, LuFileText
+    LuFile, LuImage, LuFilm, LuFileText, LuInfo
 } from 'react-icons/lu';
 
 // Local Components
 import { DescriptionEditor } from '@/components/DescriptionEditor';
 import { LabelsPopup } from '../components/labels-popup';
-
-// =======================================================
-// === CẬP NHẬT: IMPORT CÁC POPUP MỚI TỪ FILE RIÊNG ===
-// =======================================================
 import { DatesPopup } from '../components/dates-popup';
 import { ChecklistFormPopup } from '../components/checklist-form-popup';
 import { AttachmentPopup } from '../components/attachment-popup';
 import { EditAttachmentPopup } from '../components/edit-attachment-popup';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+import { Tables } from '@/lib/type';
 
+// === REALTIME: Import toast ===
+import { toast } from 'react-hot-toast';
 
 // --- TYPE DEFINITIONS (Không đổi) ---
 interface ChecklistItem { id: string; text: string; is_completed: boolean; position: number; checklist_id: string; }
@@ -43,7 +44,6 @@ interface Checklist { id: string; title: string; card_id: string; position: numb
 interface Label { id: string; name: string | null; color: string; board_id: string; }
 interface CardDetails { id: string; title: string; description: string | null; started_at: string | null; dued_at: string | null; completed_at: string | null; list: { title: string } | null; }
 interface Attachment { id: string; display_name: string; file_path: string; attachment_type: 'link' | 'upload'; created_at: string; }
-
 
 // =======================================================================
 // --- HELPER & UI COMPONENTS (Không đổi) ---
@@ -151,7 +151,6 @@ const SectionHeader = ({ icon: Icon, title, children }: {
         </div>
     </div>
 );
-
 
 // =======================================================================
 // --- FEATURE-SPECIFIC COMPONENTS (Không đổi) ---
@@ -304,16 +303,17 @@ const ChecklistDisplay = ({ checklist, boardId, onUpdate, onDelete }: { checklis
     );
 };
 
-
 // =======================================================================
-// --- MAIN MODAL COMPONENT (Không đổi logic, chỉ cập nhật cách render popup) ---
+// --- MAIN MODAL COMPONENT (Cập nhật để lắng nghe Realtime) ---
 // =======================================================================
 
-export default function CardModal({ params }: { params: { boardId: string, cardId: string }}) {
+export default function CardModal() {
     const router = useRouter();
+    const params = useParams<{ boardId: string, cardId: string }>(); // SỬA: Lấy params từ hook
     const supabase = createClient();
     const [cardDetails, setCardDetails] = useState<CardDetails | null>(null);
     const [checklists, setChecklists] = useState<Checklist[]>([]);
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [loading, setLoading] = useState(true);
     const [isEditingDescription, setIsEditingDescription] = useState(false);
 
@@ -323,32 +323,79 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
     const [isDatesPopupOpen, setIsDatesPopupOpen] = useState(false);
     const [allBoardLabels, setAllBoardLabels] = useState<Label[]>([]);
     const [selectedLabels, setSelectedLabels] = useState<Label[]>([]);
-    const [attachments, setAttachments] = useState<Attachment[]>([]);
     const [isAttachmentPopupOpen, setIsAttachmentPopupOpen] = useState(false);
     const [editingAttachment, setEditingAttachment] = useState<Attachment | null>(null);
 
     // Toàn bộ các hàm xử lý logic (fetchCardData, handle... ) đều giữ nguyên
     const fetchCardData = useCallback(async () => {
-        const { data: cardData, error: cardError } = await supabase.from('Cards').select(`id, title, description, started_at, dued_at, completed_at, list:Lists(title)`).eq('id', params.cardId).single();
-        if (cardError) { console.error("Lỗi khi tải thẻ:", cardError.message); router.back(); return; }
-        setCardDetails(cardData as CardDetails);
+        // --- Fetch Card Details ---
+        const { data: cardData, error: cardError } = await supabase
+            .from('Cards')
+            .select(`id, title, description, started_at, dued_at, completed_at, list:Lists(title)`)
+            .eq('id', params.cardId)
+            .single();
 
-        const { data: checklistData, error: checklistError } = await supabase.from('Checklists').select(`*, checklist_items:Checklist_items(*)`).eq('card_id', params.cardId).order('position', { ascending: true });
-        if(checklistError) console.error("Lỗi khi tải checklist:", checklistError.message); else setChecklists(checklistData as unknown as Checklist[]);
+        if (cardError) {
+            console.error("Lỗi khi tải thẻ:", cardError.message);
+            router.back();
+            return;
+        }
 
-        const { data: attachmentsData, error: attachmentsError } = await supabase.from('Attachments').select('*').eq('card_id', params.cardId).order('created_at', { ascending: true });
-        if (attachmentsError) console.error("Lỗi khi tải attachments:", attachmentsError.message); else setAttachments(attachmentsData as Attachment[]);
+        // Xử lý dữ liệu an toàn hơn, phòng trường hợp `list` không phải mảng
+        const formattedCardData: CardDetails = {
+            ...cardData,
+            list: Array.isArray(cardData.list) ? cardData.list[0] : cardData.list,
+        };
+        setCardDetails(formattedCardData);
 
-        const { data: boardLabelsData, error: boardLabelsError } = await supabase.from('Labels').select('*').eq('board_id', params.boardId).order('name', { ascending: true });
-        if (boardLabelsError) console.error("Lỗi khi tải các nhãn của board:", boardLabelsError.message); else setAllBoardLabels(boardLabelsData as Label[]);
+        // --- Fetch Checklists ---
+        const { data: checklistData, error: checklistError } = await supabase
+            .from('Checklists')
+            .select(`*, checklist_items:Checklist_items(*)`).eq('card_id', params.cardId)
+            .order('position', { ascending: true });
 
-        const { data: attachedLabelsData, error: attachedLabelsError } = await supabase.from('Card_labels').select('Labels(*)').eq('card_id', params.cardId);
-        if (attachedLabelsError) console.error("Lỗi khi tải các nhãn đã gắn:", attachedLabelsError.message); else {
-            const extractedLabels = attachedLabelsData.map(item => item.Labels) as Label[];
+        if (checklistError) console.error("Lỗi khi tải checklist:", checklistError.message);
+        else setChecklists(checklistData as unknown as Checklist[]);
+
+        // --- Fetch Attachments ---
+        const { data: attachmentsData, error: attachmentsError } = await supabase
+            .from('Attachments')
+            .select('*')
+            .eq('card_id', params.cardId)
+            .order('created_at', { ascending: true });
+
+        if (attachmentsError) console.error("Lỗi khi tải attachments:", attachmentsError.message);
+        else setAttachments(attachmentsData as Attachment[]);
+
+        // --- Fetch Board Labels ---
+        const { data: boardLabelsData, error: boardLabelsError } = await supabase
+            .from('Labels')
+            .select('*')
+            .eq('board_id', params.boardId)
+            .order('name', { ascending: true });
+
+        if (boardLabelsError) console.error("Lỗi khi tải các nhãn của board:", boardLabelsError.message);
+        else setAllBoardLabels(boardLabelsData as Label[]);
+
+        // --- Fetch Attached Labels ---
+        const { data: attachedLabelsData, error: attachedLabelsError } = await supabase
+            .from('Card_labels')
+            .select('Labels(*)')
+            .eq('card_id', params.cardId);
+
+        if (attachedLabelsError) {
+            console.error("Lỗi khi tải các nhãn đã gắn:", attachedLabelsError.message);
+        } else if (attachedLabelsData) {
+            // SỬA LỖI LỒNG NHAU BẰNG flatMap
+            const extractedLabels = attachedLabelsData
+                .flatMap(item => item.Labels) // Dùng flatMap để tạo ra mảng phẳng [label1, label2]
+                .filter((label): label is Label => !!label && 'id' in label); // Type guard giờ đã đúng
+
             setSelectedLabels(extractedLabels);
+
+            // KHỐI CODE LỖI BỊ COPY-PASTE NHẦM ĐÃ ĐƯỢC XÓA Ở ĐÂY
         }
     }, [params.cardId, params.boardId, router, supabase]);
-
     const handleAttachmentSaveSuccess = useCallback(() => fetchCardData(), [fetchCardData]);
     const handleLabelsChange = useCallback((newLabels: Label[]) => setSelectedLabels(newLabels), []);
     const handleOpenEditAttachment = (attachment: Attachment) => setEditingAttachment(attachment);
@@ -387,6 +434,168 @@ export default function CardModal({ params }: { params: { boardId: string, cardI
     const handleAddChecklist = (newChecklist: Checklist) => setChecklists(prev => [...prev, newChecklist]);
     const handleDeleteChecklist = (checklistId: string) => setChecklists(prev => prev.filter(c => c.id !== checklistId));
     const handleUpdateChecklist = (updatedChecklist: Checklist) => setChecklists(prev => prev.map(cl => cl.id === updatedChecklist.id ? updatedChecklist : cl));
+
+    // === REALTIME: Lắng nghe thay đổi trên database ===
+// =================================================================================
+// === REALTIME: Lắng nghe thay đổi trên database (PHIÊN BẢN ĐÃ SỬA LỖI) ===
+// =================================================================================
+// =======================================================================
+// --- CODE MỚI (NÂNG CẤP) ---
+// =======================================================================
+
+    // =======================================================================
+// --- CODE useEffect HOÀN CHỈNH (Cập nhật ngày 07/07/2025) ---
+// =======================================================================
+
+    useEffect(() => {
+        // Nếu chưa có cardId, không làm gì cả để tránh lỗi
+        if (!params.cardId) {
+            console.warn("[Realtime] useEffect: cardId is missing, subscription skipped.");
+            return;
+        }
+
+        console.log(`[Realtime] Setting up subscription for card: ${params.cardId}`);
+
+        // --- Hàm xử lý payload tập trung ---
+        const handleRealtimeChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: unknown }>) => {
+            console.groupCollapsed(`[Realtime] Payload Received: ${payload.eventType} on table "${payload.table}"`);
+            console.log("Full Payload:", payload);
+            console.groupEnd();
+
+            // ---- Xử lý thay đổi cho bảng CHECKLISTS ----
+            if (payload.table === 'Checklists') {
+                const newRecord = payload.new as Tables<'Checklists'>;
+                const oldRecord = payload.old as Partial<Tables<'Checklists'>>;
+                const relatedCardId = newRecord?.card_id || oldRecord?.card_id;
+
+                if (relatedCardId === params.cardId) {
+                    console.log("%c[Debug] Checklist MATCH FOUND! Processing event...", "color: green;");
+                    if (payload.eventType === 'INSERT') {
+                        toast.success(`Đã thêm checklist: "${newRecord.title}"`);
+                        setChecklists(prev => [...prev, newRecord as unknown as Checklist]);
+                    }
+                    if (payload.eventType === 'DELETE' && oldRecord.id) {
+                        toast.error(`Đã xóa checklist.`);
+                        setChecklists(prev => prev.filter(c => c.id !== oldRecord.id));
+                    }
+                }
+            }
+
+            // ---- Xử lý thay đổi cho bảng CHECKLIST_ITEMS (THÊM MỚI) ----
+            if (payload.table === 'Checklist_items') {
+                console.groupCollapsed(`[Debug] Processing Checklist_Item...`);
+                const newRecord = payload.new as Tables<'Checklist_items'>;
+                const oldRecord = payload.old as Partial<Tables<'Checklist_items'>>;
+
+                const eventType = payload.eventType;
+                // Lấy checklistId từ bản ghi mới hoặc cũ để xử lý cả INSERT và DELETE/UPDATE
+                const checklistId = newRecord?.checklist_id || oldRecord?.checklist_id;
+
+                // Tìm checklist cha trong state hiện tại để xác nhận sự kiện này thuộc về card đang xem
+                const parentChecklist = checklists.find(c => c.id === checklistId);
+
+                if (parentChecklist) {
+                    console.log(`%c- MATCH FOUND for parent checklist "${parentChecklist.title}"! Processing event...`, "color: green;");
+
+                    let updatedItems: ChecklistItem[] = [...parentChecklist.checklist_items];
+
+                    if (eventType === 'INSERT') {
+                        toast.success(`Đã thêm mục "${newRecord.text}"`);
+                        updatedItems.push(newRecord as unknown as ChecklistItem);
+                    }
+
+                    if (eventType === 'DELETE' && oldRecord.id) {
+                        toast.error(`Đã xóa một mục.`);
+                        updatedItems = updatedItems.filter(item => item.id !== oldRecord.id);
+                    }
+
+                    if (eventType === 'UPDATE' && newRecord.id) {
+                        toast(`Đã cập nhật mục "${newRecord.text}".`, { icon: <LuInfo /> });
+
+                        updatedItems = updatedItems.map(item => item.id === newRecord.id ? (newRecord as unknown as ChecklistItem) : item);
+                    }
+
+                    // Cập nhật lại toàn bộ state checklists với mảng items đã được sửa đổi
+                    setChecklists(prevChecklists =>
+                        prevChecklists.map(cl =>
+                            cl.id === checklistId
+                                ? { ...cl, checklist_items: updatedItems.sort((a,b) => a.position - b.position) }
+                                : cl
+                        )
+                    );
+                } else {
+                    console.log(`%c- NO MATCH. Parent checklist with ID ${checklistId} not found. Ignoring event.`, "color: orange;");
+                }
+                console.groupEnd();
+            }
+
+            // ---- Xử lý thay đổi cho bảng ATTACHMENTS ----
+            if (payload.table === 'Attachments') {
+                const newRecord = payload.new as Tables<'Attachments'>;
+                const oldRecord = payload.old as Partial<Tables<'Attachments'>>;
+                const relatedCardId = newRecord?.card_id || oldRecord?.card_id;
+
+                if (relatedCardId === params.cardId) {
+                    console.log("%c[Debug] Attachment MATCH FOUND! Processing event...", "color: green;");
+                    if (payload.eventType === 'INSERT') {
+                        toast.success(`Đã thêm đính kèm: "${newRecord.display_name}"`);
+                        setAttachments(prev => [...prev, newRecord as unknown as Attachment]);
+                    }
+                    if (payload.eventType === 'DELETE' && oldRecord.id) {
+                        toast.error(`Đã xóa đính kèm: "${oldRecord.display_name}"`);
+                        setAttachments(prev => prev.filter(a => a.id !== oldRecord.id));
+                    }
+                    if (payload.eventType === 'UPDATE' && newRecord.id) {
+                        toast(`Đã cập nhật một mục.`, { icon: <LuInfo /> }); // <-- SỬA Ở ĐÂY
+                        setAttachments(prev => prev.map(a => a.id === newRecord.id ? (newRecord as unknown as Attachment) : a));
+                    }
+                }
+            }
+
+            // ---- Xử lý khi chính thẻ được cập nhật ----
+            if (payload.table === 'Cards') {
+                const newRecord = payload.new as Tables<'Cards'>;
+                if (newRecord?.id === params.cardId && payload.eventType === 'UPDATE') {
+                    console.log("%c[Debug] Card MATCH FOUND! Processing event...", "color: green;");
+                    toast(`Thẻ "${newRecord.title}" đã được cập nhật.`, { icon: <LuInfo /> });
+                    setCardDetails(prev => prev ? {
+                        ...prev,
+                        title: newRecord.title,
+                        description: newRecord.description,
+                        started_at: newRecord.started_at,
+                        dued_at: newRecord.dued_at,
+                        completed_at: newRecord.completed_at
+                    } : null);
+                }
+            }
+        };
+
+        // --- Tạo kênh Realtime và đăng ký ---
+        const channel = supabase.channel(`card-details-${params.cardId}`);
+        const subscription = channel
+            .on('postgres_changes', { event: '*', schema: 'public', table: '*' }, handleRealtimeChanges)
+            .subscribe((status, err) => {
+                console.log(`[Realtime] Subscription status: ${status}`);
+                if (status === 'SUBSCRIBED') {
+                    console.log(`%c[Realtime] Successfully subscribed!`, "color: green; font-weight: bold;");
+                }
+                if (status === 'TIMED_OUT') {
+                    console.warn(`%c[Realtime] Subscription timed out.`, "color: orange; font-weight: bold;");
+                }
+                if (status === 'CHANNEL_ERROR') {
+                    console.error(`%c[Realtime] Channel error:`, "color: red; font-weight: bold;", err);
+                }
+            });
+
+        // --- Hàm dọn dẹp khi component unmount ---
+        return () => {
+            console.log(`[Realtime] Unsubscribing from channel "card-details-${params.cardId}"`);
+            if (subscription) {
+                subscription.unsubscribe();
+            }
+        };
+
+    }, [params.cardId, supabase, checklists]); // QUAN TRỌNG: Thêm 'checklists' vào dependency array
 
     if (loading) return <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"><p className="text-white text-lg">Đang tải...</p></div>;
     if (!cardDetails) return null;
