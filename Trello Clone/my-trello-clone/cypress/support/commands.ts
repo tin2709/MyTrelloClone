@@ -35,3 +35,19 @@
 //     }
 //   }
 // }
+// cypress/support/commands.ts
+
+
+// Quan trọng: Thêm dòng này nếu file chưa có
+export {};
+
+// --- Bắt đầu định nghĩa lệnh cy.login() ---
+// cypress/support/commands.ts
+// cypress/support/commands.ts
+Cypress.Commands.add('login', (
+    email = Cypress.env('TEST_USER_EMAIL'),
+    password = Cypress.env('TEST_USER_PASSWORD')
+) => {
+    cy.request('POST', '/api/test-login', { email, password });
+
+});

@@ -1,0 +1,57 @@
+{
+  "id": "hero_section",
+  "type": "SharedSlice",
+  "name": "HeroSection",
+  "description": "HeroSection",
+  "variations": [
+    {
+      "id": "default",
+      "name": "Default",
+      "docURL": "...",
+      "version": "initial",
+      "description": "Default",
+      "imageUrl": "",
+      "primary": {
+        "heading": {
+          "type": "StructuredText",
+          "config": {
+            "label": "Heading",
+            "placeholder": "Nhập tiêu đề chính tại đây",
+            "allowTargetBlank": true,
+            "multi": "heading1"
+          }
+        },
+        "tagline": {
+          "type": "StructuredText",
+          "config": {
+            "label": "tagline",
+            "placeholder": "Nhập dòng mô tả ngắn hoặc slogan tại đây",
+            "allowTargetBlank": true,
+            "multi": "strong,em,paragraph"
+          }
+        },
+        "ctalink": {
+          "type": "Link",
+          "config": {
+            "label": "ctaLink",
+            "placeholder": "Chọn một liên kết cho nút bấm",
+            "select": null,
+            "allowTargetBlank": true,
+            "allowText": true,
+            "repeat": false
+          }
+        },
+        "cta_label": {
+          "type": "StructuredText",
+          "config": {
+            "label": "CTA Label",
+            "placeholder": "Nhập văn bản hiển thị trên nút",
+            "allowTargetBlank": true,
+            "multi": "paragraph"
+          }
+        }
+      },
+      "items": {}
+    }
+  ]
+}

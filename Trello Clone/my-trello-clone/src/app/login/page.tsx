@@ -1,8 +1,8 @@
 // src/app/login/page.tsx
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useFormState, useFormStatus } from 'react-dom';
+import React, {useState,useActionState } from 'react';
+import { useFormStatus } from 'react-dom';
 import { BsTrello } from 'react-icons/bs';
 import { FcGoogle } from 'react-icons/fc';
 import { FaMicrosoft, FaApple, FaSlack } from 'react-icons/fa';
@@ -44,15 +44,9 @@ const SocialButton = ({ icon, text, type = "button" }: { icon: React.ReactNode; 
 
 export default function LoginPage() {
     const initialState: LoginState = {};
-    const [state, formAction] = useFormState(login, initialState);
+    const [state, formAction] = useActionState(login, initialState);
     const [showPassword, setShowPassword] = useState(false);
 
-    useEffect(() => {
-        if (state?.error) {
-            // Có thể dùng một thư viện toast notification để hiển thị đẹp hơn
-            alert(state.error);
-        }
-    }, [state]);
 
     return (
         <main className="flex items-center justify-center min-h-screen bg-gray-50 font-sans">
@@ -63,7 +57,16 @@ export default function LoginPage() {
                         Đăng nhập để tiếp tục
                     </h1>
                 </div>
+                {state?.error && (
+                    <div
+                        data-testid="login-error-message"
+                        className="mb-4 p-3 bg-red-100 text-red-700 border border-red-400 rounded"
+                    >
+                        {state.error}
+                    </div>
+                )
 
+                }
                 {/* Form đăng nhập bằng email/password không đổi */}
                 <form action={formAction} className="space-y-6">
                     <div>
