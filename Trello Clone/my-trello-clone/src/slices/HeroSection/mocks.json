@@ -1,0 +1,51 @@
+[
+	{
+		"__TYPE__": "SharedSliceContent",
+		"variation": "default",
+		"primary": {
+			"heading": {
+				"__TYPE__": "StructuredTextContent",
+				"value": [
+					{
+						"type": "heading1",
+						"content": {
+							"text": "Statement"
+						}
+					}
+				]
+			},
+			"tagline": {
+				"__TYPE__": "StructuredTextContent",
+				"value": [
+					{
+						"type": "paragraph",
+						"content": {
+							"text": "Magna tempor labore in. Nisi ullamco irure excepteur elit occaecat commodo anim. Velit ad Lorem sit irure est fugiat tempor velit irure do sint duis."
+						}
+					}
+				]
+			},
+			"ctalink": {
+				"key": "1c40d5b8-11c1-405a-938f-81ece82cdbc4",
+				"__TYPE__": "LinkContent",
+				"value": {
+					"__TYPE__": "ExternalLink",
+					"url": "http://google.com",
+					"text": "yourself"
+				}
+			},
+			"cta_label": {
+				"__TYPE__": "StructuredTextContent",
+				"value": [
+					{
+						"type": "paragraph",
+						"content": {
+							"text": "Eu et esse deserunt proident esse sunt aliquip cillum esse ullamco sunt cillum. Incididunt adipisicing nulla aute laboris aliqua officia aute est est."
+						}
+					}
+				]
+			}
+		},
+		"items": []
+	}
+]
