@@ -6,7 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove } from '@dnd-kit/sortable';
 import { BoardSkeleton } from '@/components/BoardSkeleton';
-
+import { importBoardData } from './import-actions';
+import { ImportOptionsModal } from '@/components/ImportOptionsModal'; // Giả sử bạn đã tạo file này
 // Server Actions
 import {
     deleteList,
@@ -45,6 +46,7 @@ interface SupabaseRawCard {
     id: string; title: string; position: number; list_id: string;
     description: string | null; completed_at: string | null;
     dued_at: string | null; started_at: string | null;
+    archived_at: string | null; // SỬA LỖI: Thêm trường này
     Attachments: { count: number }[];
     Checklists: { id: string; Checklist_items: { id: string; is_completed: boolean; }[]; }[];
     Card_labels: SupabaseRawCardLabel[];
@@ -61,8 +63,6 @@ interface SupabaseRawBoard {
 export default function BoardPage() {
 
     const params = useParams<{ boardId: string }>();
-
-    // --- SỬA LỖI 2: Lấy boardId trực tiếp từ params ---
     const { boardId } = params;
     const [boardData, setBoardData] = useState<BoardData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -78,29 +78,29 @@ export default function BoardPage() {
     const [archiveTab, setArchiveTab] = useState<'cards' | 'lists'>('cards');
     const [archiveSearch, setArchiveSearch] = useState('');
     const [background, setBackground] = useState<string>('');
+    const [importJsonContent, setImportJsonContent] = useState<string | null>(null);
+    const [isImporting, setIsImporting] = useState(false);
     const supabase = createClient();
     useEffect(() => {
-        // Tải hình nền đã lưu từ localStorage khi component được mount
         const savedBackground = localStorage.getItem(`board-background-${boardId}`);
-        // Nếu không có, dùng ảnh mặc định
         setBackground(savedBackground || 'https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=2070');
     }, [boardId]);
 
     useEffect(() => {
-        // Lưu hình nền vào localStorage mỗi khi nó thay đổi
         if (background) {
             localStorage.setItem(`board-background-${boardId}`, background);
         }
     }, [background, boardId]);
     const fetchBoardData = useCallback(async () => {
+        // SỬA LỖI: Thay đổi truy vấn để xử lý các bảng trống
         const { data, error } = await supabase
             .from('Boards')
             .select(`
                 id, title, workspace:Workspaces(id, name),
-                lists:Lists!inner(
+                lists:Lists(
                     id, title, position,
                     cards:Cards(
-                        id, title, position, list_id, description, completed_at, dued_at, started_at,
+                        id, title, position, list_id, description, completed_at, dued_at, started_at, archived_at,
                         Attachments(count),
                         Checklists(id, Checklist_items(id, is_completed)),
                         Card_labels(
@@ -110,9 +110,8 @@ export default function BoardPage() {
                 )
             `)
             .eq('id', boardId)
-            .is('lists.archived_at', null)
-            .is('lists.cards.archived_at', null)
-            .single<SupabaseRawBoard>(); // Ép kiểu dữ liệu thô
+            .is('lists.archived_at', null) // Chỉ lấy các danh sách chưa lưu trữ
+            .single<SupabaseRawBoard>();
 
         if (error) {
             console.error("Lỗi khi fetch dữ liệu bảng:", error);
@@ -120,37 +119,34 @@ export default function BoardPage() {
         } else if (data) {
             // Xử lý chuyển đổi từ kiểu thô sang kiểu chuẩn của ứng dụng
             const processedLists: List[] = (data.lists || []).map((list: SupabaseRawList): List => {
-                const processedCards: Card[] = (list.cards || []).map((card: SupabaseRawCard): Card => {
+                const processedCards: Card[] = (list.cards || [])
+                    .filter(card => !card.archived_at) // SỬA LỖI: Lọc các thẻ đã lưu trữ ở đây
+                    .map((card: SupabaseRawCard): Card => {
+                        const labels: Label[] = (card.Card_labels || [])
+                            .map(cardLabel => cardLabel.Labels)
+                            .filter((label): label is Label => label !== null);
 
-                    // Xử lý labels (giữ nguyên)
-                    const labels: Label[] = (card.Card_labels || [])
-                        .map(cardLabel => cardLabel.Labels)
-                        .filter((label): label is Label => label !== null);
+                        const checklists = (card.Checklists || []).map(checklist => ({
+                            id: checklist.id,
+                            checklist_items: checklist.Checklist_items || []
+                        }));
 
-                    // Xử lý checklists (giữ nguyên)
-                    const checklists = (card.Checklists || []).map(checklist => ({
-                        id: checklist.id,
-                        checklist_items: checklist.Checklist_items || []
-                    }));
+                        const newCard: Card = {
+                            id: card.id,
+                            title: card.title,
+                            position: card.position,
+                            list_id: card.list_id,
+                            description: card.description,
+                            completed_at: card.completed_at,
+                            dued_at: card.dued_at,
+                            started_at: card.started_at,
+                            Attachments: card.Attachments,
+                            Checklists: checklists,
+                            labels: labels,
+                        };
 
-                    // Tạo đối tượng mới một cách tường minh để tránh cảnh báo no-unused-vars
-                    // và đảm bảo khớp với interface `Card`
-                    const newCard: Card = {
-                        id: card.id,
-                        title: card.title,
-                        position: card.position,
-                        list_id: card.list_id,
-                        description: card.description,
-                        completed_at: card.completed_at,
-                        dued_at: card.dued_at,
-                        started_at: card.started_at,
-                        Attachments: card.Attachments,
-                        Checklists: checklists, // Gán checklists đã được xử lý
-                        labels: labels,       // Gán labels đã được xử lý
-                    };
-
-                    return newCard;
-                }).sort((a, b) => a.position - b.position);
+                        return newCard;
+                    }).sort((a, b) => a.position - b.position);
 
                 return { ...list, cards: processedCards };
             }).sort((a, b) => a.position - b.position);
@@ -165,7 +161,7 @@ export default function BoardPage() {
         setLoading(false);
     }, [boardId, supabase]);
 
-
+    // --- Các hàm và useEffect còn lại giữ nguyên ---
 
     const fetchArchivedData = useCallback(async () => {
         if (!isArchiveSidebarOpen) return;
@@ -266,108 +262,57 @@ export default function BoardPage() {
         console.log(`[Board Realtime] Setting up subscription for board: ${boardId}`);
 
         const handleRealtimeChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: unknown }>) => {
-            // Log payload gốc
             console.groupCollapsed(`[Board Realtime] Payload Received: ${payload.eventType} on table "${payload.table}"`);
             console.log("Full Payload:", payload);
             console.groupEnd();
 
             const { eventType, table, new: newRecord, old: oldRecord } = payload;
 
-            // --- Xử lý sự kiện cho bảng LISTS ---
             if (table === 'Lists') {
                 const list = (eventType === 'DELETE' ? oldRecord : newRecord) as Tables<'Lists'>;
-
-                console.groupCollapsed(`[Debug] Processing List Event...`);
-                console.log(`- Checking if list's board_id (${list?.board_id}) matches current board (${boardId})`);
-
                 if (list?.board_id === boardId) {
-                    console.log(`%c- MATCH FOUND! Event will be processed.`, "color: green; font-weight: bold;");
-
-                    hotToast.dismiss(); // Tắt các toast cũ để tránh trùng lặp
-
-                    if (eventType === 'INSERT') {
-                        hotToast.success(`Danh sách "${list.title}" đã được thêm.`);
-                    } else if (eventType === 'UPDATE') {
+                    hotToast.dismiss();
+                    if (eventType === 'INSERT') hotToast.success(`Danh sách "${list.title}" đã được thêm.`);
+                    else if (eventType === 'UPDATE') {
                         const oldList = oldRecord as Tables<'Lists'>;
-                        if (oldList && oldList.title !== list.title) {
-                            hotToast(`Danh sách "${oldList.title}" đổi tên thành "${list.title}".`);
-                        } else if (list.archived_at && !oldList.archived_at) {
-                            hotToast.error(`Danh sách "${list.title}" đã được lưu trữ.`);
-                        } else if (!list.archived_at && oldList.archived_at) {
-                            hotToast.success(`Danh sách "${list.title}" đã được khôi phục.`);
-                        }
+                        if (oldList && oldList.title !== list.title) hotToast(`Danh sách "${oldList.title}" đổi tên thành "${list.title}".`);
+                        else if (list.archived_at && !oldList.archived_at) hotToast.error(`Danh sách "${list.title}" đã được lưu trữ.`);
+                        else if (!list.archived_at && oldList.archived_at) hotToast.success(`Danh sách "${list.title}" đã được khôi phục.`);
                     } else if (eventType === 'DELETE') {
                         const oldList = oldRecord as Tables<'Lists'>;
                         hotToast.error(`Danh sách "${oldList.title}" đã được xóa.`);
                     }
-
-                    // Tải lại dữ liệu để đảm bảo giao diện đồng bộ
                     fetchBoardData();
-                } else {
-                    console.log(`%c- NO MATCH. Ignoring event from another board.`, "color: orange;");
                 }
-                console.groupEnd();
             }
 
-            // --- Xử lý sự kiện cho bảng CARDS ---
             if (table === 'Cards') {
                 const card = (eventType === 'DELETE' ? oldRecord : newRecord) as Tables<'Cards'>;
-
-                console.groupCollapsed(`[Debug] Processing Card Event...`);
-                console.log(`- Checking if card's board_id (${card?.board_id}) matches current board (${boardId})`);
-
                 if (card?.board_id === boardId) {
-                    console.log(`%c- MATCH FOUND! Event will be processed.`, "color: green; font-weight: bold;");
-
                     hotToast.dismiss();
-
-                    if (eventType === 'INSERT') {
-                        hotToast.success(`Thẻ "${card.title}" đã được tạo.`);
-                    } else if (eventType === 'UPDATE') {
+                    if (eventType === 'INSERT') hotToast.success(`Thẻ "${card.title}" đã được tạo.`);
+                    else if (eventType === 'UPDATE') {
                         const oldCard = oldRecord as Tables<'Cards'>;
-                        if (card.archived_at && !oldCard.archived_at) {
-                            hotToast.error(`Thẻ "${card.title}" đã được lưu trữ.`);
-                        } else if (!card.archived_at && oldCard.archived_at) {
-                            hotToast.success(`Thẻ "${card.title}" đã được khôi phục.`);
-                        } else if (oldCard.title !== card.title) {
-                            hotToast(`Thẻ "${oldCard.title}" đổi tên thành "${card.title}".`);
-                        }
+                        if (card.archived_at && !oldCard.archived_at) hotToast.error(`Thẻ "${card.title}" đã được lưu trữ.`);
+                        else if (!card.archived_at && oldCard.archived_at) hotToast.success(`Thẻ "${card.title}" đã được khôi phục.`);
+                        else if (oldCard.title !== card.title) hotToast(`Thẻ "${oldCard.title}" đổi tên thành "${card.title}".`);
                     } else if (eventType === 'DELETE') {
                         const oldCard = oldRecord as Tables<'Cards'>;
                         hotToast.error(`Thẻ "${oldCard.title}" đã được xóa.`);
                     }
-
-                    // Tải lại dữ liệu để đảm bảo giao diện đồng bộ
                     fetchBoardData();
-                } else {
-                    console.log(`%c- NO MATCH. Ignoring event from another board.`, "color: orange;");
                 }
-                console.groupEnd();
             }
         };
 
         const channel = supabase
             .channel(`board-changes-${boardId}`)
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'Lists' },
-                handleRealtimeChanges
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'Cards' },
-                handleRealtimeChanges
-            )
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'Lists' }, handleRealtimeChanges)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'Cards' }, handleRealtimeChanges)
             .subscribe((status, err) => {
-                if (status === 'SUBSCRIBED') {
-                    console.log(`%c[Board Realtime] Successfully subscribed to board ${boardId}`, "color: green;");
-                }
-                if (status === 'CHANNEL_ERROR') {
-                    console.error('[Board Realtime] Subscription error:', err);
-                }
-                if (status === 'TIMED_OUT') {
-                    console.warn(`%c[Board Realtime] Subscription timed out for board ${boardId}.`, "color: orange;");
-                }
+                if (status === 'SUBSCRIBED') console.log(`%c[Board Realtime] Successfully subscribed to board ${boardId}`, "color: green;");
+                if (status === 'CHANNEL_ERROR') console.error('[Board Realtime] Subscription error:', err);
+                if (status === 'TIMED_OUT') console.warn(`%c[Board Realtime] Subscription timed out for board ${boardId}.`, "color: orange;");
             });
 
         return () => {
@@ -376,6 +321,50 @@ export default function BoardPage() {
         };
 
     }, [boardId, supabase, fetchBoardData])
+
+    const handleExportJson = useCallback(() => {
+        if (!boardData) {
+            hotToast.error("Không có dữ liệu bảng để xuất.");
+            return;
+        }
+        const jsonString = JSON.stringify(boardData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const fileName = `board-${boardData.title.replace(/\s+/g, '-').toLowerCase()}-${boardData.id}.json`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        hotToast.success(`Đã xuất bảng "${boardData.title}" thành công!`);
+    }, [boardData]);
+
+    const handleExportStructure = useCallback(() => {
+        if (!boardData) {
+            hotToast.error("Không có dữ liệu bảng để xuất.");
+            return;
+        }
+        const structureOnlyData: any = JSON.parse(JSON.stringify(boardData));
+        structureOnlyData.lists.forEach((list: any) => {
+            list.cards = list.cards.map((card: any) => ({ title: card.title }));
+        });
+        structureOnlyData.workspace = null;
+        const jsonString = JSON.stringify(structureOnlyData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const fileName = `structure-with-titles-${boardData.title.replace(/\s+/g, '-').toLowerCase()}-${boardData.id}.json`;
+        link.download = fileName;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        hotToast.success(`Đã xuất cấu trúc bảng (kèm tiêu đề thẻ)!`);
+    }, [boardData]);
+
     const listIds = useMemo(() => boardData?.lists.map(list => list.id) || [], [boardData]);
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 3 } }));
 
@@ -440,12 +429,45 @@ export default function BoardPage() {
         }
     }, [boardData, boardId]);
     const mainStyle = useMemo(() => ({
-        transition: 'background 0.5s ease-in-out', // Thêm hiệu ứng chuyển đổi mượt mà
+        transition: 'background 0.5s ease-in-out',
         ...(background.startsWith('http') || background.startsWith('/')
             ? { backgroundImage: `url('${background}')` }
             : { backgroundColor: background })
     }), [background]);
+    const handleInitiateImport = (jsonContent: string) => {
+        try {
+            // Kiểm tra nhanh xem có phải là JSON hợp lệ không
+            JSON.parse(jsonContent);
+            setImportJsonContent(jsonContent); // Lưu nội dung lại, việc này sẽ kích hoạt hiển thị Modal
+        } catch {
+            hotToast.error("Tệp không phải là một file JSON hợp lệ.");
+            setImportJsonContent(null);
+        }
+    };
 
+    // HÀM MỚI: Được gọi từ Modal khi người dùng xác nhận lựa chọn
+    const handleConfirmImport = async (mode: 'merge' | 'replace') => {
+        if (!importJsonContent || !boardId) return;
+
+        setIsImporting(true);
+        hotToast.loading('Đang nhập dữ liệu...', { id: 'import-toast' });
+
+        const result = await importBoardData(boardId, importJsonContent, mode);
+
+        hotToast.dismiss('import-toast');
+
+        if (result.success) {
+            hotToast.success(result.message || 'Nhập dữ liệu thành công!');
+            // QUAN TRỌNG: Tải lại dữ liệu bảng sau khi nhập thành công
+            await fetchBoardData();
+        } else {
+            hotToast.error(result.error || 'Đã xảy ra lỗi khi nhập.');
+        }
+
+        // Reset state để đóng modal và cho phép thực hiện lại
+        setIsImporting(false);
+        setImportJsonContent(null);
+    };
     if (loading) return <BoardSkeleton />;
     if (!boardData) return <div className="h-screen w-screen flex items-center justify-center bg-gray-800 text-white">Không tìm thấy bảng.</div>;
 
@@ -454,12 +476,26 @@ export default function BoardPage() {
     return (
         <div className="h-screen w-screen flex flex-col font-sans">
             {toast && <ToastNotification message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            {importJsonContent && (
+                <ImportOptionsModal
+                    onCancel={() => {
+                        setImportJsonContent(null);
+                        setIsImporting(false);
+                    }}
+                    onConfirm={handleConfirmImport}
+                    isImporting={isImporting}
+                />
+            )}
             {isBoardMenuOpen && (
                 <BoardMenu
                     onClose={() => setIsBoardMenuOpen(false)}
                     onShowActivity={() => { setIsBoardMenuOpen(false); setIsActivityFeedOpen(true); }}
                     onShowArchive={() => { setIsBoardMenuOpen(false); setIsArchiveSidebarOpen(true); }}
-                    onBackgroundChange={setBackground} // Truyền hàm setBackground vào
+                    onBackgroundChange={setBackground}
+                    onExportJson={handleExportJson}
+                    onExportStructure={handleExportStructure}
+                    onImportJson={handleInitiateImport} // <--- TRUYỀN HÀM XỬ LÝ VÀO ĐÂY
+
                 />
             )}
             {isActivityFeedOpen && <ActivityFeed boardId={boardId} onClose={() => setIsActivityFeedOpen(false)} />}
