@@ -8,6 +8,12 @@ import {
 } from 'react-icons/lu';
 import useTailwindBreakpoint from '@/app/hooks/use-tailwind-breakpoint'; // <-- Cập nhật đường dẫn đến hook
 
+type WorkspaceMembersPageProps = {
+    params: {
+        workspaceId: string;
+    };
+    searchParams: { [key: string]: string | string[] | undefined };
+};
 // Component cho Sidebar dành riêng cho Workspace
 const WorkspaceSidebar = ({ workspaceId, workspaceName, isCollapsed, toggleSidebar }: {
     workspaceId: string,
@@ -168,7 +174,7 @@ const MembersContent = ({ workspaceName }: { workspaceName: string }) => {
 
 
 // Component chính của trang
-export default function WorkspaceMembersPage({ params }: { params: { workspaceId: string }}) {
+export default function WorkspaceMembersPage({ params }: WorkspaceMembersPageProps) {
     const workspaceName = "2025_23_06";
 
     // Quản lý trạng thái đóng/mở
