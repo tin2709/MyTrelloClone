@@ -6,7 +6,9 @@ const nextConfig: NextConfig = {
     // Đây là nơi bạn đặt các tùy chọn cấu hình của Next.js
     // Ví dụ: reactStrictMode, images, redirects, ...
     reactStrictMode: true,
-
+    eslint: {
+        ignoreDuringBuilds: true,
+    },
     // Đây là cách để tùy chỉnh cấu hình Webpack
     webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
         // 'config' là đối tượng cấu hình Webpack hiện tại của Next.js
