@@ -60,6 +60,24 @@ interface SupabaseRawBoard {
     workspace: Workspace | null;
     lists: SupabaseRawList[];
 }
+// Đặt các kiểu này ở đầu file, gần các định nghĩa kiểu khác
+interface StructureCard {
+    title: string;
+}
+
+interface StructureList {
+    id: string;
+    title: string;
+    position: number;
+    cards: StructureCard[];
+}
+
+interface StructureBoard {
+    id: string;
+    title: string;
+    workspace: Workspace | null; // Giữ lại kiểu gốc
+    lists: StructureList[];
+}
 export default function BoardPage() {
 
     const params = useParams<{ boardId: string }>();
@@ -346,10 +364,22 @@ export default function BoardPage() {
             hotToast.error("Không có dữ liệu bảng để xuất.");
             return;
         }
-        const structureOnlyData: any = JSON.parse(JSON.stringify(boardData));
-        structureOnlyData.lists.forEach((list: any) => {
-            list.cards = list.cards.map((card: any) => ({ title: card.title }));
+
+        // SỬA LỖI Ở ĐÂY
+        // 1. Dùng `as` để báo cho TS biết kiểu dữ liệu sau khi parse
+        const structureOnlyData = JSON.parse(JSON.stringify(boardData)) as StructureBoard;
+
+        // 2. Lặp qua các danh sách
+        structureOnlyData.lists.forEach((list) => { // Không cần `any`, TS đã biết `list` là `StructureList`
+
+            // 3. `list.cards` ở đây là từ `boardData` gốc, nên kiểu của card là `Card`
+            // TypeScript sẽ tự suy luận kiểu `card` là `Card` từ `boardData.lists`
+            list.cards = boardData.lists
+                .find(originalList => originalList.id === list.id)
+                ?.cards.map((card) => ({ title: card.title })) || []; // Lấy card gốc và chỉ map ra title
         });
+
+        // Gán workspace về null như logic ban đầu của bạn
         structureOnlyData.workspace = null;
         const jsonString = JSON.stringify(structureOnlyData, null, 2);
         const blob = new Blob([jsonString], { type: 'application/json' });
