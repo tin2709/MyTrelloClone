@@ -174,7 +174,7 @@ const MembersContent = ({ workspaceName }: { workspaceName: string }) => {
 
 
 // Component chính của trang
-export default function WorkspaceMembersPage({ params }: WorkspaceMembersPageProps) {
+const WorkspaceMembersPage: React.FC<WorkspaceMembersPageProps> = ({ params }) => {
     const workspaceName = "2025_23_06";
 
     // Quản lý trạng thái đóng/mở
@@ -226,3 +226,4 @@ export default function WorkspaceMembersPage({ params }: WorkspaceMembersPagePro
         </div>
     );
 }
+export default WorkspaceMembersPage;
